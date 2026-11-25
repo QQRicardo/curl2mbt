@@ -1,24 +1,28 @@
-// The curl2mbt command: reads a curl command and prints the request it makes.
+// The curl2mbt command: reads a curl command and prints a MoonBit program that
+// makes the same request.
 
 ///|
 let usage : String =
-  #|Usage: curl2mbt curl ARG...
-  #|       curl2mbt --text COMMAND
-  #|       curl2mbt --file FILE
+  #|Usage: curl2mbt [OPTIONS] curl ARG...
+  #|       curl2mbt [OPTIONS] --text COMMAND
+  #|       curl2mbt [OPTIONS] --file FILE
   #|
-  #|Reads a curl command and prints the request it makes as JSON. Nothing is
-  #|sent. A command that cannot be represented faithfully is rejected with
-  #|every reason.
+  #|Reads a curl command and prints a MoonBit program that makes the same
+  #|request with moonbitlang/async. Nothing is sent. A command that cannot be
+  #|reproduced faithfully is rejected with every reason.
   #|
-  #|  curl ARG...     the command as arguments; your shell has already read
-  #|                  quotes and variables
-  #|  --text COMMAND  the command as the text a POSIX shell or bash reads;
-  #|                  "$NAME" stays a reference to an environment variable
-  #|  --file FILE     like --text, with the text in a UTF-8 file
-  #|  --help          print this help
+  #|  curl ARG...       the command as arguments; your shell has already read
+  #|                    quotes and variables
+  #|  --text COMMAND    the command as the text a POSIX shell or bash reads;
+  #|                    "$NAME" stays a reference to an environment variable
+  #|  --file FILE       like --text, with the text in a UTF-8 file
+  #|  --plan            print the request as JSON instead of a program
+  #|  --inline-secrets  write passwords, tokens and cookies into the program
+  #|                    instead of reading them from environment variables
+  #|  --help            print this help
   #|
-  #|Exit status: 0 if the request is printed, 1 if the command is rejected, 2
-  #|if the arguments of curl2mbt itself are wrong.
+  #|Exit status: 0 if there is a result, 1 if the command is rejected, 2 if the
+  #|arguments of curl2mbt itself are wrong.
 
 ///|
 /// The outcome of a run: what to print, and the exit status.
@@ -63,12 +67,19 @@ fn diagnostic_to_json(found : @curl2mbt.Diagnostic) -> Json {
 }
 
 ///|
-fn accepted(parsed : @curl2mbt.Parsed) -> Outcome {
+/// What to print for a command that was read.
+priv struct Settings {
+  plan : Bool
+  secrets : @curl2mbt.Secrets
+}
+
+///|
+fn plan_output(parsed : @curl2mbt.Parsed) -> Outcome {
   let json = Json::object({
     "plan": parsed.plan.to_json(),
     "diagnostics": Json::array(parsed.diagnostics.map(diagnostic_to_json)),
   })
-  { output: json.stringify(indent=2) + "\n", status: 0, }
+  { output: json.stringify(indent=2), status: 0, }
 }
 
 ///|
@@ -77,14 +88,64 @@ fn rejected(
   source? : StringView,
 ) -> Outcome {
   let lines = found.map(item => item.render(source?))
-  { output: lines.join("\n") + "\n", status: 1, }
+  { output: lines.join("\n"), status: 1, }
 }
 
 ///|
-fn run_text(text : String) -> Outcome {
-  accepted(@curl2mbt.parse(text)) catch {
-    CurlError(found) => rejected(found, source=text)
+/// The program, after comments that say what it needs and what was noticed.
+fn program_output(
+  parsed : @curl2mbt.Parsed,
+  secrets : @curl2mbt.Secrets,
+  source? : StringView,
+) -> Outcome {
+  let emitted = parsed.plan.emit(secrets~) catch {
+    EmitError(found) => return rejected(found)
   }
+  let lines = [
+    "// Needs moonbitlang/async 0.22: moon add moonbitlang/async", "// Imports for moon.pkg, with pkgtype(kind: \"executable\"):",
+    "//   import {",
+  ]
+  for name in emitted.imports {
+    lines.push("//     \"\{name}\",")
+  }
+  lines.push("//   }")
+  if !emitted.environment.is_empty() {
+    lines.push("// Environment variables: \{emitted.environment.join(", ")}")
+  }
+  let notes = parsed.diagnostics.map(item => item.render(source?)) +
+    emitted.diagnostics.map(item => item.render())
+  if !notes.is_empty() {
+    lines.push("//")
+    for note in notes {
+      for line in note.split("\n") {
+        lines.push("// \{line}")
+      }
+    }
+  }
+  lines.push("")
+  lines.push(emitted.code.trim_end().to_owned())
+  { output: lines.join("\n"), status: 0, }
+}
+
+///|
+fn output(
+  parsed : @curl2mbt.Parsed,
+  settings : Settings,
+  source? : StringView,
+) -> Outcome {
+  if settings.plan {
+    plan_output(parsed)
+  } else {
+    program_output(parsed, settings.secrets, source?)
+  }
+}
+
+///|
+fn run_text(text : String, settings : Settings) -> Outcome {
+  let parsed = @curl2mbt.parse(text) catch {
+    CurlError(found) => return rejected(found, source=text)
+  }
+  output(parsed, settings, source=text)
 }
 
 ///|
@@ -93,29 +154,47 @@ fn run(
   arguments : ArrayView[String],
   read_file : (String) -> String raise,
 ) -> Outcome {
-  match arguments {
+  let mut plan = false
+  let mut secrets : @curl2mbt.Secrets = FromEnv
+  let mut rest = arguments
+  for ;; {
+    match rest {
+      ["--plan", .. more] => {
+        plan = true
+        rest = more
+      }
+      ["--inline-secrets", .. more] => {
+        secrets = Inline
+        rest = more
+      }
+      _ => break
+    }
+  }
+  let settings = Settings::{ plan, secrets, }
+  match rest {
     [] => usage_error("there is no curl command")
     ["--help" | "-h"] => { output: usage, status: 0, }
-    ["--text", text] => run_text(text)
+    ["--text", text] => run_text(text, settings)
     ["--file", path] => {
       let text = read_file(path) catch {
         _ => return usage_error("the file cannot be read as UTF-8 text")
       }
-      run_text(
-        match text.strip_prefix("\u{FEFF}") {
-          Some(rest) => rest.to_owned()
-          None => text
-        },
-      )
+      let text = match text.strip_prefix("\u{FEFF}") {
+        Some(rest) => rest.to_owned()
+        None => text
+      }
+      run_text(text, settings)
     }
     ["--text" | "--file", ..] =>
-      usage_error("--text and --file take one argument")
+      usage_error("--text and --file take one argument, the last one")
     [first, ..] if first.has_prefix("-") =>
       usage_error("unknown option; options of curl come after the word curl")
-    _ =>
-      accepted(@curl2mbt.parse_argv(arguments)) catch {
-        CurlError(found) => rejected(found)
+    words => {
+      let parsed = @curl2mbt.parse_argv(words) catch {
+        CurlError(found) => return rejected(found)
       }
+      output(parsed, settings)
+    }
   }
 }
 

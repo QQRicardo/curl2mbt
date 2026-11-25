@@ -12,4 +12,4 @@ keywords = [ "curl", "http", "converter", "codegen", "shell" ]
 
 preferred_target = "wasm-gc"
 
-description = "Reads curl commands into typed HTTP requests and says exactly what it cannot reproduce"
+description = "Turns curl commands into MoonBit programs that make the same request, and says exactly what it cannot reproduce"

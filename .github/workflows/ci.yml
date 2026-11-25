@@ -77,9 +77,11 @@ jobs:
         shell: bash
         run: |
           for target in wasm wasm-gc js native; do
-            moon run cmd/main --target $target -- \
-              --text 'curl -u "u:$P" -d a=1 https://example.com/x' > out.json
+            command='curl -u "u:$P" -d a=1 https://example.com/x'
+            moon run cmd/main --target $target -- --plan --text "$command" > out.json
             grep -q '"env": "P"' out.json
+            moon run cmd/main --target $target -- --text "$command" > program.txt
+            grep -q '^async fn main {' program.txt
             if moon run cmd/main --target $target -- curl -F a=b h > out.txt; then
               exit 1
             fi
@@ -95,7 +97,7 @@ jobs:
       - name: Install curl, bash, Python and a C compiler
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends bash ca-certificates curl gcc git libc6-dev python3
+          apt-get install -y --no-install-recommends bash ca-certificates curl gcc git libc6-dev openssl python3
           curl --version
           bash --version
 
@@ -109,7 +111,16 @@ jobs:
       - name: Fetch the registry index
         run: moon update
 
-      - name: Compare
+      - name: Build the command line tool
         run: |
           moon build --target native --release cmd/main
-          python3 tools/compare.py "$PWD/_build/native/release/build/QQRicardo/curl2mbt-cli/main/main.exe"
+          echo "CURL2MBT=$PWD/_build/native/release/build/QQRicardo/curl2mbt-cli/main/main.exe" >> "$GITHUB_ENV"
+
+      - name: Compare requests and shell words
+        run: python3 tools/compare.py "$CURL2MBT"
+
+      - name: Compare programs on native
+        run: python3 tools/compare_programs.py native "$CURL2MBT"
+
+      - name: Compare programs on wasm
+        run: python3 tools/compare_programs.py wasm "$CURL2MBT"

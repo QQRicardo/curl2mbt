@@ -5,7 +5,7 @@ fn no_file(_path : String) -> String raise {
 
 ///|
 test "accepted commands" {
-  let outcome = run(["curl", "-s", "http://h/"], no_file)
+  let outcome = run(["--plan", "curl", "-s", "http://h/"], no_file)
   assert_eq(outcome.status, 0)
   let json = @json.parse(outcome.output)
   guard json
@@ -35,11 +35,51 @@ test "text and files" {
     }
   }
 
-  let outcome = run(["--file", "f"], read)
+  let outcome = run(["--plan", "--file", "f"], read)
   assert_eq(outcome.status, 0)
   // Offsets do not count the byte order mark.
   assert_true(outcome.output.contains("\"start\": 15"))
   assert_eq(run(["--file", "g"], read).status, 2)
+}
+
+///|
+test "programs" {
+  let outcome = run(["curl", "-s", "-u", "u:s3cret", "https://h/"], no_file)
+  assert_eq(outcome.status, 0)
+  assert_false(outcome.output.contains("s3cret"))
+  let lines = outcome.output.split("\n").map(line => line.to_owned())
+  inspect(
+    lines.filter(line => line.has_prefix("//") && line != "///|").collect()[:]
+    .iter()
+    .take(13)
+    .join("\n"),
+    content=(
+      #|// Needs moonbitlang/async 0.22: moon add moonbitlang/async
+      #|// Imports for moon.pkg, with pkgtype(kind: "executable"):
+      #|//   import {
+      #|//     "moonbitlang/async/io",
+      #|//     "moonbitlang/core/env",
+      #|//     "moonbitlang/async/http",
+      #|//     "moonbitlang/async/stdio",
+      #|//     "moonbitlang/core/encoding/utf8",
+      #|//     "moonbitlang/core/encoding/base64",
+      #|//   }
+      #|// Environment variables: BASIC_AUTH
+      #|//
+      #|// note[no-effect-on-request] at argument 1: -s only changes what curl reports
+    ),
+  )
+  let inline = run(
+    ["--inline-secrets", "curl", "-u", "u:s3cret", "https://h/"],
+    no_file,
+  )
+  assert_true(inline.output.contains("s3cret"))
+  // The plan has a method the library does not have.
+  let refused = ["curl", "-X", "PURGE", "https://h/"]
+  let outcome = run(refused, no_file)
+  assert_eq(outcome.status, 1)
+  assert_true(outcome.output.has_prefix("error[unsupported-method]: "))
+  assert_eq(run(["--plan", ..refused], no_file).status, 0)
 }
 
 ///|
@@ -51,6 +91,7 @@ test "wrong arguments" {
       ["--text", "a", "b"],
       ["--file"],
       ["--json", "curl"],
+      ["--plan"],
     ] {
     let outcome = run(arguments, no_file)
     assert_eq(outcome.status, 2)

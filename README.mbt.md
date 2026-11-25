@@ -1,15 +1,88 @@
 # curl2mbt
 
-Reads a curl command, as API documentation and browsers give them, and says
-what HTTP request it makes: as typed MoonBit data and as JSON. If a part of the
-command cannot be represented faithfully, the command is rejected, with the
-place and the reason. Nothing is sent, and nothing leaves your machine.
+Turns a curl command, as API documentation and browsers give them, into a
+MoonBit program that makes the same HTTP request with
+[moonbitlang/async](https://mooncakes.io/docs/moonbitlang/async), or into a
+typed description of the request. If a part of the command cannot be reproduced
+faithfully, the command is rejected, with the place and the reason. Nothing is
+sent, and nothing leaves your machine.
 
-It is for MoonBit programs that take requests as curl commands (API testers,
-agents, proxies, documentation tools), and for anyone who wants to know what a
-curl command really sends.
+It is for those who call HTTP APIs from MoonBit, and for MoonBit programs that
+take requests as curl commands (API testers, agents, proxies, documentation
+tools).
 
-## Usage
+```text
+$ moon run cmd/main -- --text 'curl https://api.example.com/v1/items \
+    -H "Authorization: Bearer $API_TOKEN" --json "{\"name\": \"apple\"}"'
+// Needs moonbitlang/async 0.22: moon add moonbitlang/async
+// Imports for moon.pkg, with pkgtype(kind: "executable"):
+//   import {
+//     "moonbitlang/async/io",
+//     "moonbitlang/core/env",
+//     "moonbitlang/async/http",
+//     "moonbitlang/async/stdio",
+//     "moonbitlang/core/encoding/utf8",
+//   }
+// Environment variables: API_TOKEN
+
+///|
+/// The value of the environment variable `name`.
+fn env(name : String) -> String raise {
+  match @env.get_env_var(name) {
+    Some(value) => value
+    None => fail("the environment variable \{name} is not set")
+  }
+}
+
+///|
+/// POST https://api.example.com/v1/items
+async fn send_request() -> (@http.Response, &@io.Data) {
+  let env_api_token = env("API_TOKEN")
+  let text =
+    #|{"name": "apple"}
+  let body = @utf8.encode(text)
+  let client = @http.Client("https://api.example.com")
+  defer client.close()
+  client.request(Post, "/v1/items", extra_headers={
+    "Authorization": "Bearer \{env_api_token}",
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+    "Content-Length": body.length().to_string(),
+  })
+  client.write(body)
+  let response = client.end_request()
+  (response, client.read_all())
+}
+
+///|
+async fn main {
+  let (response, body) = send_request()
+  ignore(response)
+  @stdio.stdout.write(body)
+}
+```
+
+## The command line tool
+
+Put `curl2mbt` before the command, or give it the text:
+
+```text
+$ moon run cmd/main -- curl -u user:pass -d a=1 https://example.com/
+$ moon run cmd/main -- --text 'curl -H "X-Key: $KEY" https://example.com/'
+$ moon run cmd/main -- --file request.sh
+```
+
+It prints a program. With `--plan` it prints the request as JSON instead. It
+exits with 1 if the command is rejected, with every reason.
+
+Passwords, tokens and cookies of the command do not go into the program, which
+reads them from environment variables instead; comments at its start name them.
+What counts are `-u`, `--oauth2-bearer`, `-b` and header fields such as
+`Authorization`, `Cookie` and `X-Api-Key`. Secrets in a URL or a body stay where
+they are; for some query parameters there is a warning. `--inline-secrets`
+writes everything into the program.
+
+## The library
 
 ```mbt check
 ///|
@@ -28,6 +101,16 @@ test "read a command" {
     plan.headers.map(header => header.name).join(", "),
     content="Authorization, Content-Type, Accept",
   )
+}
+
+///|
+test "write a program" {
+  let plan = @curl2mbt.parse("curl -u user:pass https://example.com/").plan
+  let emitted = plan.emit()
+  assert_true(emitted.code.contains("@http.Client(\"https://example.com\")"))
+  // The packages to import, and the variables the program reads.
+  assert_true(emitted.imports.contains("moonbitlang/async/http"))
+  assert_eq(emitted.environment, ["BASIC_AUTH"])
 }
 
 ///|
@@ -54,17 +137,9 @@ into arguments. Both give a `Parsed`: the `plan`, and warnings and notes about
 the command. `RequestPlan::to_json` and `RequestPlan::from_json` keep plans in
 JSON. Messages never repeat option values, which may hold passwords.
 
-The command line tool does the same; put `curl2mbt` before the command, or give
-it the text:
-
-```text
-$ moon run cmd/main -- curl -u user:pass -d a=1 https://example.com/
-$ moon run cmd/main -- --text 'curl -H "X-Key: $KEY" https://example.com/'
-$ moon run cmd/main -- --file request.sh
-```
-
-It prints JSON with the plan and the findings, and exits with 1 if the command
-is rejected.
+`RequestPlan::emit` writes the program, or raises `EmitError` with every reason
+why moonbitlang/async cannot make the request. The library itself has no
+dependency and works on every backend; the programs run on native and wasm.
 
 ## What is read
 
@@ -76,7 +151,7 @@ is rejected.
 | Header fields | `-H` with all its forms, `-A`, `-e`, `-b` with cookies, `-r` |
 | Body | `-d`, `--data-ascii`, `--data-binary`, `--data-raw`, `--data-urlencode`, `--json`, any number of them |
 | Authentication | Basic (`-u`), bearer tokens (`--oauth2-bearer`) |
-| Kept for the one who sends it | `-L`, `--max-redirs`, `-k`, `-f`, `-m`, `--compressed` |
+| How it is sent | `-L`, `--max-redirs`, `-k`, `-f`, `-m`, `--compressed` |
 | Reported as without effect on the request | options about output, progress and connection reuse |
 
 Everything else is rejected: the other options of curl 8.19.0, data from files,
@@ -90,22 +165,46 @@ Unquoted `*`, `?` and `[` are taken literally, with a warning, since no file
 names are known. Two `\u` escapes that are the halves of a surrogate pair, as
 Chrome writes them, are read as one character, with a warning.
 
+## What programs do
+
+A program writes the body of the response to the standard output, as curl does.
+With `-L` it follows redirects as curl does: what becomes of the method and the
+body after each status, which header fields are kept, and no credentials for
+another host. A redirect it cannot resolve with certainty ends the program with
+an error.
+
+Plans that moonbitlang/async 0.22 cannot send as they are get no program:
+methods other than GET, HEAD, POST, PUT, DELETE, OPTIONS, TRACE and PATCH,
+a header field that occurs twice, `Host`, `Upgrade`, `TE` other than `trailers`,
+no User-Agent at all, IPv6 addresses in URLs, and `-L` together with `-b`.
+
+Programs differ from curl in this:
+
+- Unless the command sets them, User-Agent and Accept-Encoding are those of
+  moonbitlang/async. It asks for gzip and decompresses it.
+- A variable that is not set is an error, where a shell takes an empty string.
+- `-I` and `-i` do not print the header fields of the response.
+- Certificates are checked by the TLS library of the system, which may trust
+  others than curl does.
+
 ## How it is checked
 
 - `moon test` on wasm, wasm-gc, js and native.
 - `tools/compare.py` runs command lines through the installed curl against a
   local server and compares what arrives with the plan, and runs texts through
   bash and compares the arguments. Listed and random cases; CI runs it with the
-  curl and bash of Ubuntu 26.04. Not compared: the User-Agent curl sends by default,
-  Host unless the command sets it, and blanks around header values.
-
-TLS, redirects, timeouts and decompression are only recorded in the plan; there
-is nothing here that could carry them out yet.
+  curl and bash of Ubuntu 26.04. Not compared: the User-Agent curl sends by
+  default, Host unless the command sets it, and blanks around header values.
+- `tools/compare_programs.py` builds the programs for a list of commands, runs
+  them and curl against local servers, and compares the requests, the output and
+  whether the run succeeds. CI does this on native and wasm, on Linux. With TLS
+  only `-k` and the rejection of a self-signed certificate are compared, with
+  HTTP/1.1 only.
 
 ## Status
 
-Implemented: all of the above. Planned: MoonBit code that sends the request,
-commands in the syntax of Windows `cmd`, multipart forms and data from files.
+Implemented: all of the above. Planned: commands in the syntax of Windows `cmd`,
+multipart forms and data from files. Not planned: requests that are not HTTP.
 
 ## License
 

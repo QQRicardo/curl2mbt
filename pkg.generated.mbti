@@ -18,6 +18,11 @@ pub suberror CurlError {
 }
 
 #derive(@debug.Debug)
+pub suberror EmitError {
+  EmitError(Array[Diagnostic])
+}
+
+#derive(@debug.Debug)
 pub suberror PlanError {
   PlanError(path~ : String, message~ : String)
 }
@@ -43,6 +48,14 @@ pub struct Diagnostic {
   location : Location?
 }
 pub fn Diagnostic::render(Self, source? : StringView) -> String
+
+#derive(Eq, @debug.Debug)
+pub struct Emitted {
+  code : String
+  imports : Array[String]
+  environment : Array[String]
+  diagnostics : Array[Diagnostic]
+}
 
 #derive(Eq, @debug.Debug)
 pub struct Header {
@@ -85,8 +98,15 @@ pub struct RequestPlan {
   fail_on_error : Bool
   max_time_ms : Int32?
 }
+pub fn RequestPlan::emit(Self, target? : Target, secrets? : Secrets) -> Emitted raise EmitError
 pub fn RequestPlan::from_json(@json.Json) -> Self raise PlanError
 pub fn RequestPlan::to_json(Self) -> @json.Json
+
+#derive(Eq, @debug.Debug)
+pub(all) enum Secrets {
+  FromEnv
+  Inline
+}
 
 #derive(Eq, @debug.Debug)
 pub(all) enum Severity {
@@ -98,6 +118,11 @@ pub(all) enum Severity {
 #derive(Eq, @debug.Debug)
 pub(all) enum Shell {
   Posix
+}
+
+#derive(Eq, @debug.Debug)
+pub(all) enum Target {
+  Async
 }
 
 #derive(Eq, @debug.Debug)

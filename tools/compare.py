@@ -144,7 +144,7 @@ def received(data, plan):
 
 def run_cli(arguments):
     """The plan, or the codes of the reasons it was rejected for."""
-    result = subprocess.run(CLI + arguments, capture_output=True)
+    result = subprocess.run(CLI + ["--plan"] + arguments, capture_output=True)
     output = result.stdout.decode()
     if result.returncode == 0:
         return json.loads(output)["plan"], None
