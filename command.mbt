@@ -78,6 +78,10 @@ priv struct Settings {
   mut range : (String, Location)?
   mut data : Value?
   mut data_location : Location?
+  parts : Array[Part]
+  mut form_location : Location?
+  /// Whether `\\` separates the parts of a path.
+  windows : Bool
   mut json : Bool
   mut compressed : Bool
   mut follow : Bool
@@ -340,7 +344,7 @@ fn split_short(
 }
 
 ///|
-fn Settings::new(report : Report) -> Settings {
+fn Settings::new(report : Report, windows~ : Bool) -> Settings {
   {
     report,
     urls: [],
@@ -357,6 +361,9 @@ fn Settings::new(report : Report) -> Settings {
     range: None,
     data: None,
     data_location: None,
+    parts: [],
+    form_location: None,
+    windows,
     json: false,
     compressed: false,
     follow: false,
@@ -456,7 +463,12 @@ fn Settings::apply(self : Settings, option : Occurrence) -> Unit {
     "range" => self.apply_range(option)
     "data" | "data-ascii" | "data-binary" =>
       if option.value.prefix() is [b'@', ..] {
-        self.reject_file(option)
+        let read = if option.name == "data-binary" {
+          Whole
+        } else {
+          WithoutLineBreaks
+        }
+        self.add_file(option, option.value.drop_bytes(1), read, b"&")
       } else if option.value.pieces() is [Env(_), ..] {
         self.fail_at(
           option,
@@ -470,7 +482,8 @@ fn Settings::apply(self : Settings, option : Occurrence) -> Unit {
     "data-raw" => self.add_data(option, option.value, b"&")
     "json" =>
       if option.value.prefix() is [b'@', ..] {
-        self.reject_file(option)
+        self.json = true
+        self.add_file(option, option.value.drop_bytes(1), Whole, b"")
       } else if option.value.pieces() is [Env(_), ..] {
         self.fail_at(
           option, "variable-may-name-file", "curl reads a file if the variable starts with @",
@@ -480,6 +493,7 @@ fn Settings::apply(self : Settings, option : Occurrence) -> Unit {
         self.add_data(option, option.value, b"")
       }
     "data-urlencode" => self.apply_urlencode(option)
+    "form" | "form-string" => self.apply_form(option)
     "compressed" => self.compressed = option.on
     "location" => self.follow = option.on
     "max-redirs" => self.apply_max_redirs(option)
@@ -502,9 +516,44 @@ fn Settings::reject_file(self : Settings, option : Occurrence) -> Unit {
   self.fail_at(
     option,
     "file-not-supported",
-    "reading data from a file is not supported yet",
-    help="put the data in the command; with --data-raw a leading @ is data",
+    "reading header fields from a file is not supported",
+    help="put them in the command",
   )
+}
+
+///|
+/// Adds the data of the file that `path` names.
+fn Settings::add_file(
+  self : Settings,
+  option : Occurrence,
+  path : Value,
+  read : FileRead,
+  separator : Bytes,
+) -> Unit {
+  guard path.to_text() is Some(path) && !path.contains("\u0000") else {
+    self.fail_at(
+      option,
+      "variable-not-supported",
+      "the name of the file must be known text",
+      help="write the name out; with --data-raw a leading @ is data",
+    )
+    return
+  }
+  if path is ("" | "-") {
+    self.fail_at(
+      option,
+      "file-not-supported",
+      if path == "" {
+        "there is no name of a file after the @"
+      } else {
+        "reading the standard input is not supported"
+      },
+      help="name a file; with --data-raw a leading @ is data",
+    )
+    return
+  }
+  let value = Value::from_pieces([File(path~, read~)])
+  self.add_data(option, value, separator)
 }
 
 ///|
@@ -519,6 +568,15 @@ fn Settings::add_data(
     None => Some(value)
     // curl adds no separator to data that is still empty.
     Some(before) if before.is_empty() => Some(value)
+    Some(before) if separator.length() > 0 && !before.any_byte(_ => true) => {
+      self.fail_at(
+        option,
+        "data-may-be-empty",
+        "curl adds & before this unless the variable or file before it is empty, which is not known here",
+        help="put data that is never empty first",
+      )
+      self.data
+    }
     Some(before) =>
       Some(
         before.append(Value::from_pieces([Literal(separator)])).append(value),
@@ -695,17 +753,26 @@ fn Settings::apply_urlencode(self : Settings, option : Occurrence) -> Unit {
     )
     return
   }
-  // The name ends at the first `=` or `@`.
+  // The name ends at the first `=` or, if there is none, at the first `@`.
   let bytes = option.value.to_bytes().unwrap_or(b"")
-  let encoded = match index_of(bytes, b => b is (b'=' | b'@')) {
-    Some(at) if bytes[at] == b'@' => {
-      self.reject_file(option)
-      return
-    }
+  let encoded = match index_of(bytes, b => b == b'=') {
     Some(0) => form_encode(bytes[1:].to_owned())
     Some(at) =>
       bytes[:at + 1].to_owned() + form_encode(bytes[at + 1:].to_owned())
-    None => form_encode(bytes)
+    None =>
+      match option.value.split_once(b'@') {
+        Some((name, path)) => {
+          guard name.to_text() is Some(name) else {
+            self.fail_at(
+              option, "unsupported-value", "the name before the @ is not valid UTF-8",
+            )
+            return
+          }
+          self.add_file(option, path, FormEncoded(name), b"&")
+          return
+        }
+        None => form_encode(bytes)
+      }
   }
   self.add_data(option, Value::from_pieces([Literal(encoded)]), b"&")
 }

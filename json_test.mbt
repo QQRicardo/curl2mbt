@@ -96,7 +96,7 @@ test "JSON that is not a plan" {
     problem(
       plan_json("[{\"name\":\"a\",\"value\":[{\"env\":\"A\",\"text\":\"b\"}]}]"),
     ),
-    content="headers[0].value[0]: must have exactly one of text, base64 and env",
+    content="headers[0].value[0]: must have exactly one of text, base64, env and file",
   )
   inspect(
     problem(plan_json("[{\"name\":\"Host\",\"value\":\"\"}]")),

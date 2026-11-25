@@ -83,6 +83,15 @@ test "programs" {
 }
 
 ///|
+test "texts for cmd" {
+  let text = "curl ^\"http://h/?a=1^&b=2^\" ^\n  -d ^\"x^\""
+  let outcome = run(["--plan", "--shell", "cmd", "--text", text], no_file)
+  assert_eq(outcome.status, 0)
+  assert_true(outcome.output.contains("http://h/?a=1&b=2"))
+  assert_eq(run(["--shell", "posix", "--text", text], no_file).status, 1)
+}
+
+///|
 test "wrong arguments" {
   for
     arguments in [
@@ -92,6 +101,9 @@ test "wrong arguments" {
       ["--file"],
       ["--json", "curl"],
       ["--plan"],
+      ["--shell"],
+      ["--shell", "fish", "--text", "curl h"],
+      ["--shell", "cmd", "curl", "h"],
     ] {
     let outcome = run(arguments, no_file)
     assert_eq(outcome.status, 2)

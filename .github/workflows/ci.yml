@@ -82,11 +82,19 @@ jobs:
             grep -q '"env": "P"' out.json
             moon run cmd/main --target $target -- --text "$command" > program.txt
             grep -q '^async fn main {' program.txt
-            if moon run cmd/main --target $target -- curl -F a=b h > out.txt; then
+            if moon run cmd/main --target $target -- curl --digest h > out.txt; then
               exit 1
             fi
             grep -q '^error\[unsupported-option\] at argument 1' out.txt
           done
+
+      - name: Compare with cmd and curl.exe (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          moon build --target native --release cmd/main
+          /c/Windows/System32/curl.exe --version
+          python tools/compare_cmd.py _build/native/release/build/QQRicardo/curl2mbt-cli/main/main.exe
 
   compare:
     name: Compare with curl and bash

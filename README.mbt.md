@@ -70,9 +70,11 @@ Put `curl2mbt` before the command, or give it the text:
 $ moon run cmd/main -- curl -u user:pass -d a=1 https://example.com/
 $ moon run cmd/main -- --text 'curl -H "X-Key: $KEY" https://example.com/'
 $ moon run cmd/main -- --file request.sh
+$ moon run cmd/main -- --shell cmd --file request.txt
 ```
 
-It prints a program. With `--plan` it prints the request as JSON instead. It
+`--shell cmd` is for commands that were copied for the prompt of Windows. The
+tool prints a program. With `--plan` it prints the request as JSON instead. It
 exits with 1 if the command is rejected, with every reason.
 
 Passwords, tokens and cookies of the command do not go into the program, which
@@ -115,26 +117,27 @@ test "write a program" {
 
 ///|
 test "what cannot be represented" {
-  let text = "curl -F file=@a.png https://example.com/{id} | jq ."
+  let text = "curl --digest -u user:pass https://example.com/{id} | jq ."
   let found = @curl2mbt.parse(text).diagnostics catch {
       CurlError(found) => found
     }
   inspect(
     found.map(item => item.render(source=text)).join("\n"),
     content=(
-      #|error[unsupported-option] at 1:6: -F is not supported
-      #|error[url-globbing] at 1:21: curl expands {} and [] in a URL into several requests
+      #|error[unsupported-option] at 1:6: --digest is not supported
+      #|error[url-globbing] at 1:28: curl expands {} and [] in a URL into several requests
       #|  help: replace placeholders by values; for literal braces or brackets use -g or percent-encode them
-      #|error[shell-syntax] at 1:46: a pipeline is not part of the request
+      #|error[shell-syntax] at 1:53: a pipeline is not part of the request
       #|  help: keep only the curl command
     ),
   )
 }
 ```
 
-`parse` reads the text of a command, `parse_argv` a command that has been split
-into arguments. Both give a `Parsed`: the `plan`, and warnings and notes about
-the command. `RequestPlan::to_json` and `RequestPlan::from_json` keep plans in
+`parse` reads the text of a command, for a POSIX shell or with `shell=Cmd` for
+the prompt of Windows, and `parse_argv` a command that has been split into
+arguments. Both give a `Parsed`: the `plan`, and warnings and notes about the
+command. `RequestPlan::to_json` and `RequestPlan::from_json` keep plans in
 JSON. Messages never repeat option values, which may hold passwords.
 
 `RequestPlan::emit` writes the program, or raises `EmitError` with every reason
@@ -146,18 +149,21 @@ dependency and works on every backend; the programs run on native and wasm.
 | | |
 |---|---|
 | Shell | POSIX shell and bash words: quotes, `$'...'`, continued lines, comments, and `"$NAME"` or `"${NAME}"` as references to environment variables |
+| Windows cmd | the prompt, not batch files: carets, quotes, continued lines, and `"%NAME%"` as a reference to an environment variable |
 | Method | `-X`, `-I`, `-G` |
 | URL | http and https; `--url`, `-g`, `--path-as-is`, user information |
 | Header fields | `-H` with all its forms, `-A`, `-e`, `-b` with cookies, `-r` |
-| Body | `-d`, `--data-ascii`, `--data-binary`, `--data-raw`, `--data-urlencode`, `--json`, any number of them |
+| Body | `-d`, `--data-ascii`, `--data-binary`, `--data-raw`, `--data-urlencode`, `--json`, any number of them, also from files with `@` |
+| Forms | `-F` with text, files (`@`, `<`), `;type=` and `;filename=`; `--form-string` |
 | Authentication | Basic (`-u`), bearer tokens (`--oauth2-bearer`) |
 | How it is sent | `-L`, `--max-redirs`, `-k`, `-f`, `-m`, `--compressed` |
 | Reported as without effect on the request | options about output, progress and connection reuse |
 
-Everything else is rejected: the other options of curl 8.19.0, data from files,
-multipart forms, several URLs, variables in URLs, pipelines, redirections and
-substitutions, other protocols, header lines that change how the message is
-framed, and URLs that clients read differently.
+Everything else is rejected: the other options of curl 8.19.0, the standard
+input, header fields and cookies from files, forms inside forms, several URLs,
+variables in URLs and file names, pipelines, redirections and substitutions,
+other protocols, header lines that change how the message is framed, and URLs
+that clients read differently.
 
 Three things differ from a shell on purpose. An unset variable is an empty string
 to a shell; here it stays a reference, and whoever sends the request decides.
@@ -165,9 +171,19 @@ Unquoted `*`, `?` and `[` are taken literally, with a warning, since no file
 names are known. Two `\u` escapes that are the halves of a surrogate pair, as
 Chrome writes them, are read as one character, with a warning.
 
+For cmd, `%NAME%` stays a reference in the same way, and its value is used as it
+is, while cmd would give a meaning to quotes and `&` in it. `%C3%A9` is taken for
+percent-encoding and not for a variable named `C3`. Characters outside ASCII are
+UTF-8, where curl for Windows may use the code page of the system. All of this
+comes with a warning where it can matter.
+
 ## What programs do
 
 A program writes the body of the response to the standard output, as curl does.
+Files that the command names are read when the program runs, relative to where
+it runs, and held in memory. The boundary of a form is one that occurs in none of
+its parts.
+
 With `-L` it follows redirects as curl does: what becomes of the method and the
 body after each status, which header fields are kept, and no credentials for
 another host. A redirect it cannot resolve with certainty ends the program with
@@ -184,6 +200,7 @@ Programs differ from curl in this:
   moonbitlang/async. It asks for gzip and decompresses it.
 - A variable that is not set is an error, where a shell takes an empty string.
 - `-I` and `-i` do not print the header fields of the response.
+- There is no `Expect: 100-continue`, which curl adds to large bodies.
 - Certificates are checked by the TLS library of the system, which may trust
   others than curl does.
 
@@ -200,11 +217,14 @@ Programs differ from curl in this:
   whether the run succeeds. CI does this on native and wasm, on Linux. With TLS
   only `-k` and the rejection of a self-signed certificate are compared, with
   HTTP/1.1 only.
+- `tools/compare_cmd.py` gives texts to the prompt of cmd.exe with the curl.exe
+  of Windows and compares what arrives with the plan. Listed and random cases of
+  ASCII characters; CI runs it on Windows.
 
 ## Status
 
-Implemented: all of the above. Planned: commands in the syntax of Windows `cmd`,
-multipart forms and data from files. Not planned: requests that are not HTTP.
+Implemented: all of the above. Not planned: requests that are not HTTP, and batch
+files.
 
 ## License
 

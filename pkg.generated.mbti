@@ -37,6 +37,7 @@ pub enum Auth {
 #derive(Eq, @debug.Debug)
 pub enum Body {
   Data(Value)
+  Multipart(Array[Part])
 }
 
 #derive(Eq, @debug.Debug)
@@ -58,6 +59,13 @@ pub struct Emitted {
 }
 
 #derive(Eq, @debug.Debug)
+pub(all) enum FileRead {
+  Whole
+  WithoutLineBreaks
+  FormEncoded(String)
+}
+
+#derive(Eq, @debug.Debug)
 pub struct Header {
   name : String
   value : Value
@@ -76,9 +84,18 @@ pub struct Parsed {
 }
 
 #derive(Eq, @debug.Debug)
+pub struct Part {
+  name : String
+  content : Value
+  filename : String?
+  content_type : String?
+}
+
+#derive(Eq, @debug.Debug)
 pub(all) enum Piece {
   Literal(Bytes)
   Env(String)
+  File(path~ : String, read~ : FileRead)
 }
 
 #derive(Eq, @debug.Debug)
@@ -118,6 +135,7 @@ pub(all) enum Severity {
 #derive(Eq, @debug.Debug)
 pub(all) enum Shell {
   Posix
+  Cmd
 }
 
 #derive(Eq, @debug.Debug)

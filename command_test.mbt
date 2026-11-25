@@ -159,12 +159,12 @@ test "variables" {
 test "all errors are reported, in order" {
   inspect(
     findings(
-      "curl -F a=b --digest -X 'A B' 'http://h/a b' extra -H 'bad name: 1'",
+      "curl -T f   --digest -X 'A B' 'http://h/a b' extra -H 'bad name: 1'",
     ),
     content="unsupported-option@5-7 unsupported-option@12-20 bad-method@24-29 bad-url@30-44 several-urls@45-50 bad-header-name@54-67",
   )
   inspect(
-    findings("curl http://h/ -d @f | jq"),
+    findings("curl http://h/ -d @- | jq"),
     content="file-not-supported@18-20 shell-syntax@21-22",
   )
 }
@@ -225,7 +225,7 @@ test "octal and hexadecimal escapes" {
   fn body(text : String) -> Bytes? raise {
     match @curl2mbt.parse("curl http://h/ --data-raw \{text}").plan.body {
       Some(Data(value)) => value.to_bytes()
-      None => None
+      _ => None
     }
   }
 
@@ -313,7 +313,9 @@ test "values never appear in messages" {
       "curl http://h/ --oauth2-bearer $'\{secret}\\n'",
       "curl 'http://h/ \{secret}'",
       "curl http://h/ -m \{secret}",
-      "curl http://h/ -d @\{secret}",
+      "curl http://h/ -H @\{secret}",
+      "curl http://h/ -F a=@\{secret}, -F '\{secret}=;'",
+      "curl http://h/ -d @\{secret} -d \{secret}",
       "curl --\{secret} http://h/",
       "curl http://h/ \{secret}/",
       "\{secret} http://h/",

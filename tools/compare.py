@@ -29,14 +29,21 @@ import subprocess
 import sys
 import tempfile
 import threading
+import urllib.parse
 
-from compare_cases import ARGV_CASES, ARGV_PARTS, TEXT_CASES, TEXT_PARTS
+from compare_cases import ARGV_CASES, ARGV_PARTS, FORM_PARTS, TEXT_CASES, TEXT_PARTS
 
 CLI = sys.argv[1:]
 CURL = shutil.which("curl")
 BASH = shutil.which("bash")
+DIRECTORY = tempfile.mkdtemp()
+FILES = {
+    "f": b"a b\r\nc\0d&\xff\n", "empty": b"", "t.txt": b"text", "p.PNG": b"\x89P",
+    "j.json": b"{}\n", "d e;f,g.xml": b"<x/>",
+}
 VARIABLES = {"TOKEN": "t0k en", "EMPTY": "", "A_1": "x=y"}
 RANDOM_ARGV = 1500
+RANDOM_FORM = 1500
 RANDOM_TEXT = 5000
 
 
@@ -94,13 +101,38 @@ def value_bytes(value):
             out += piece["text"].encode()
         elif "base64" in piece:
             out += base64.b64decode(piece["base64"])
+        elif "file" in piece:
+            out += file_bytes(piece)
         else:
             out += VARIABLES[piece["env"]].encode()
     return out
 
 
+def file_bytes(piece):
+    with open(os.path.join(DIRECTORY, piece["file"]), "rb") as file:
+        data = file.read()
+    if piece.get("without_line_breaks"):
+        return data.translate(None, b"\r\n\0")
+    if "form_encoded" in piece:
+        if not data:
+            return b""
+        name = piece["form_encoded"]
+        encoded = urllib.parse.quote_plus(data, safe="").encode()
+        return (name + "=" if name else "").encode() + encoded
+    return data
+
+
+def form_parts(boundary, body):
+    """The parts of a multipart body."""
+    parts = (b"\r\n" + body).split(b"\r\n--" + boundary)
+    if parts[0] or parts[-1] != b"--\r\n":
+        raise AssertionError("not a multipart body")
+    return [part[2:] for part in parts[1:-1]]
+
+
 def expected(plan):
-    """The request line, fields and body a plan stands for."""
+    """The request line, fields and body a plan stands for, the body of a form
+    as its parts."""
     rest = plan["url"].split("://", 1)[1]
     authority, slash, target = rest.partition("/")
     fields = []
@@ -112,7 +144,23 @@ def expected(plan):
         fields.append((b"authorization", b"Bearer " + value_bytes(auth["bearer"])))
     for header in plan["headers"]:
         fields.append((header["name"].lower().encode(), value_bytes(header["value"])))
-    body = value_bytes(plan["body"]["data"]) if "body" in plan else None
+    body = None
+    if "data" in plan.get("body", {}):
+        body = value_bytes(plan["body"]["data"])
+    elif "body" in plan:
+        fields.append((b"content-type", b"multipart/form-data"))
+        body = []
+        for part in plan["body"]["multipart"]:
+            escaped = [
+                part.get(key, "").replace("\r", "%0D").replace("\n", "%0A").replace('"', "%22")
+                for key in ("name", "filename")
+            ]
+            head = 'Content-Disposition: form-data; name="%s"' % escaped[0]
+            if "filename" in part:
+                head += '; filename="%s"' % escaped[1]
+            if "type" in part:
+                head += "\r\nContent-Type: " + part["type"]
+            body.append(head.encode() + b"\r\n\r\n" + value_bytes(part["content"]))
     line = ("%s /%s" % (plan["method"], target)).encode()
     return line, sorted(fields), body
 
@@ -122,7 +170,7 @@ def received(data, plan):
     head, _, body = data.partition(b"\r\n\r\n")
     lines = head.split(b"\r\n")
     set_names = {header["name"].lower() for header in plan["headers"]}
-    fields, length = [], None
+    fields, length, body_parts = [], None, None
     for line in lines[1:]:
         name, _, value = line.partition(b":")
         name, value = name.lower(), value.strip(b" \t")
@@ -135,10 +183,15 @@ def received(data, plan):
             if plan.get("omit_user_agent"):
                 raise AssertionError("a User-Agent was sent")
             continue
+        start, found, boundary = value.partition(b"; boundary=")
+        if name == b"content-type" and found:
+            value, body_parts = start, form_parts(boundary, body)
         fields.append((name, value))
     if length is not None and length != len(body):
         raise AssertionError("Content-Length does not fit the body")
     line = lines[0].rsplit(b" HTTP/1.1", 1)[0]
+    if body_parts is not None:
+        return line, sorted(fields), body_parts
     return line, sorted(fields), None if length is None else body
 
 
@@ -155,6 +208,14 @@ def run_cli(arguments):
     raise SystemExit("curl2mbt failed: %r\n%s%s" % (arguments, output, result.stderr.decode()))
 
 
+def names_missing_file(node):
+    if isinstance(node, dict):
+        if "file" in node:
+            return not os.path.isfile(os.path.join(DIRECTORY, node["file"]))
+        return any(names_missing_file(x) for x in node.values())
+    return isinstance(node, list) and any(names_missing_file(x) for x in node)
+
+
 def compare_argv(server, arguments):
     """`same`, `rejected ...`, or what differs."""
     arguments = [a.replace("HOST", server.authority) for a in arguments]
@@ -163,8 +224,10 @@ def compare_argv(server, arguments):
         return "rejected " + " ".join(codes)
     server.requests.clear()
     result = subprocess.run(
-        [CURL, "-q", "-sS", "--max-time", "5"] + arguments, capture_output=True
+        [CURL, "-q", "-sS", "--max-time", "5"] + arguments, capture_output=True, cwd=DIRECTORY
     )
+    if names_missing_file(plan):
+        return "same" if result.returncode == 26 else "curl reads this file"
     if len(server.requests) != 1:
         return "curl made %d requests: %r" % (len(server.requests), result.stderr)
     try:
@@ -241,6 +304,9 @@ def main():
             print("%s %r: wanted %s, got\n%s" % (kind, case, want, outcome))
         return outcome.split(" ")[0]
 
+    for name, data in FILES.items():
+        with open(os.path.join(DIRECTORY, name), "wb") as file:
+            file.write(data)
     server = Server()
     counts = {}
 
@@ -254,6 +320,10 @@ def main():
         parts = [source.choice(ARGV_PARTS) for _ in range(source.randint(1, 5))]
         case = [a for part in parts for a in part] + ["http://HOST/p?q=1"]
         count("random arguments", check("arguments", case, compare_argv(server, case)))
+    for _ in range(RANDOM_FORM):
+        text = "".join(source.choice(FORM_PARTS) for _ in range(source.randint(1, 8)))
+        case = ["-F", "a=" + text, "http://HOST/"]
+        count("random forms", check("form", case, compare_argv(server, case)))
 
     with tempfile.TemporaryDirectory() as directory:
         os.mkdir(os.path.join(directory, "empty"))
@@ -268,6 +338,7 @@ def main():
             text = "curl http://h/ --data-raw x%s" % words
             count("random texts", check("text", text, compare_text(text, directory)))
 
+    shutil.rmtree(DIRECTORY, ignore_errors=True)
     for (kind, outcome), number in sorted(counts.items()):
         print("%s: %d %s" % (kind, number, outcome))
     if failures:

@@ -13,9 +13,11 @@ let usage : String =
   #|
   #|  curl ARG...       the command as arguments; your shell has already read
   #|                    quotes and variables
-  #|  --text COMMAND    the command as the text a POSIX shell or bash reads;
-  #|                    "$NAME" stays a reference to an environment variable
+  #|  --text COMMAND    the command as the text a shell reads; "$NAME" stays a
+  #|                    reference to an environment variable
   #|  --file FILE       like --text, with the text in a UTF-8 file
+  #|  --shell SHELL     what reads the text: posix, a POSIX shell or bash, which
+  #|                    is the default, or cmd, the prompt of Windows
   #|  --plan            print the request as JSON instead of a program
   #|  --inline-secrets  write passwords, tokens and cookies into the program
   #|                    instead of reading them from environment variables
@@ -71,6 +73,7 @@ fn diagnostic_to_json(found : @curl2mbt.Diagnostic) -> Json {
 priv struct Settings {
   plan : Bool
   secrets : @curl2mbt.Secrets
+  shell : @curl2mbt.Shell
 }
 
 ///|
@@ -142,7 +145,7 @@ fn output(
 
 ///|
 fn run_text(text : String, settings : Settings) -> Outcome {
-  let parsed = @curl2mbt.parse(text) catch {
+  let parsed = @curl2mbt.parse(text, shell=settings.shell) catch {
     CurlError(found) => return rejected(found, source=text)
   }
   output(parsed, settings, source=text)
@@ -156,6 +159,7 @@ fn run(
 ) -> Outcome {
   let mut plan = false
   let mut secrets : @curl2mbt.Secrets = FromEnv
+  let mut shell : @curl2mbt.Shell? = None
   let mut rest = arguments
   for ;; {
     match rest {
@@ -167,10 +171,19 @@ fn run(
         secrets = Inline
         rest = more
       }
+      ["--shell", "posix", .. more] => {
+        shell = Some(Posix)
+        rest = more
+      }
+      ["--shell", "cmd", .. more] => {
+        shell = Some(Cmd)
+        rest = more
+      }
+      ["--shell", ..] => return usage_error("--shell takes posix or cmd")
       _ => break
     }
   }
-  let settings = Settings::{ plan, secrets, }
+  let settings = Settings::{ plan, secrets, shell: shell.unwrap_or(Posix), }
   match rest {
     [] => usage_error("there is no curl command")
     ["--help" | "-h"] => { output: usage, status: 0, }
@@ -189,6 +202,10 @@ fn run(
       usage_error("--text and --file take one argument, the last one")
     [first, ..] if first.has_prefix("-") =>
       usage_error("unknown option; options of curl come after the word curl")
+    _ if shell is Some(_) =>
+      usage_error(
+        "--shell is for --text and --file; arguments have been read by your shell",
+      )
     words => {
       let parsed = @curl2mbt.parse_argv(words) catch {
         CurlError(found) => return rejected(found)

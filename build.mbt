@@ -39,6 +39,10 @@ fn Settings::headers(
     set("Cookie", value)
   }
   for line in self.header_lines {
+    // The body of a form brings its own.
+    if body is Some(Multipart(_)) && same_name(line.name, "Content-Type") {
+      continue
+    }
     if line.kind is Set(value) {
       set(line.name, value)
     }
@@ -50,7 +54,7 @@ fn Settings::headers(
     if !self.has_line("Accept") {
       implied("Accept", "application/json")
     }
-  } else if body is Some(_) && !self.has_line("Content-Type") {
+  } else if body is Some(Data(_)) && !self.has_line("Content-Type") {
     implied("Content-Type", "application/x-www-form-urlencoded")
   }
   headers
@@ -64,7 +68,7 @@ fn Settings::url_with_data(self : Settings, text : String) -> String {
     query.iter().all(c => c > ' ' && c < '\u007F' && c != '#') else {
     self.report.error(
       "bad-query-data",
-      "the data that -G puts in the URL has a variable, a space, a # or a character that is not printable ASCII",
+      "the data that -G puts in the URL has a variable, a file, a space, a # or a character that is not printable ASCII",
       help="use --data-urlencode",
       location?=self.data_location,
     )
@@ -165,7 +169,9 @@ fn Settings::build(self : Settings) -> RequestPlan? {
       location~,
     )
   }
+  self.check_form()
   let body = match self.data {
+    _ if !self.parts.is_empty() => Some(Multipart(self.parts))
     Some(data) if !self.get => Some(Data(data))
     _ => None
   }
@@ -275,18 +281,21 @@ fn Settings::curl_would_send(
 
 ///|
 /// Whether `value` is how a program called curl is started.
-fn is_curl(value : Value) -> Bool {
+fn is_curl(value : Value, windows~ : Bool) -> Bool {
   guard value.to_text() is Some(text) else { return false }
-  let name = match text.rev_find("/") {
-    Some(at) => text[at + 1:]
-    None => text[:]
-  }
+  let name = base_name(text, windows~)
+  let name = if windows { name.to_lower() } else { name }
   name is ("curl" | "curl.exe")
 }
 
 ///|
-fn parse_words(words : Array[Word], report : Report) -> Parsed raise CurlError {
-  let words = if words is [{ value, location, }, _, ..] &&
+fn parse_words(
+  words : Array[Word],
+  report : Report,
+  windows~ : Bool,
+) -> Parsed raise CurlError {
+  let words = if !windows &&
+    words is [{ value, location, }, _, ..] &&
     value.to_text() is Some("$") {
     report.add(
       Note,
@@ -304,9 +313,9 @@ fn parse_words(words : Array[Word], report : Report) -> Parsed raise CurlError {
         report.error("no-command", "there is no command")
       }
     [{ value, location, }, .. rest] =>
-      if is_curl(value) {
+      if is_curl(value, windows~) {
         let (options, urls) = split_options(rest, report)
-        let settings = Settings::new(report)
+        let settings = Settings::new(report, windows~)
         for option in options {
           settings.apply(option)
         }
@@ -333,6 +342,9 @@ fn parse_words(words : Array[Word], report : Report) -> Parsed raise CurlError {
 pub(all) enum Shell {
   /// A POSIX shell or bash, also in what browsers call "Copy as cURL (bash)".
   Posix
+  /// The prompt of Windows cmd.exe, "Copy as cURL (cmd)". Not a batch file,
+  /// where % has other meanings.
+  Cmd
 }
 
 ///|
@@ -344,8 +356,9 @@ pub fn parse(
   let report = Report::{ found: [], }
   let words = match shell {
     Posix => posix_words(text, report)
+    Cmd => cmd_words(text, report)
   }
-  parse_words(words, report)
+  parse_words(words, report, windows=shell is Cmd)
 }
 
 ///|
@@ -358,5 +371,5 @@ pub fn parse_argv(arguments : ArrayView[String]) -> Parsed raise CurlError {
     value: Value::literal(text),
     location: Argument(i),
   })
-  parse_words(words, report)
+  parse_words(words, report, windows=false)
 }

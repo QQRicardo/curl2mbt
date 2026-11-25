@@ -7,6 +7,21 @@ pub(all) enum Piece {
   /// What the environment variable of this name holds when the request is
   /// made, as in `"Bearer $TOKEN"`.
   Env(String)
+  /// What the file holds when the request is made. Only in bodies.
+  File(path~ : String, read~ : FileRead)
+}
+
+///|
+/// How the content of a file becomes data.
+#derive(Eq, Debug)
+pub(all) enum FileRead {
+  /// As it is.
+  Whole
+  /// Without CR, LF and NUL.
+  WithoutLineBreaks
+  /// Encoded as in a form, after this name and `=`, unless the name is empty.
+  /// Nothing at all if the file is empty.
+  FormEncoded(String)
 }
 
 ///|
@@ -26,7 +41,7 @@ fn Value::from_pieces(pieces : Array[Piece]) -> Value {
       (Literal(bytes), Some(Literal(before))) =>
         out[out.length() - 1] = Literal(before + bytes)
       (Literal(bytes), _) => if bytes.length() > 0 { out.push(piece) }
-      (Env(_), _) => out.push(piece)
+      (Env(_) | File(_), _) => out.push(piece)
     }
   }
   { pieces: out, }
@@ -49,7 +64,8 @@ fn Value::append(self : Value, other : Value) -> Value {
 }
 
 ///|
-/// The bytes of the value, unless it refers to an environment variable.
+/// The bytes of the value, unless it refers to an environment variable or a
+/// file.
 pub fn Value::to_bytes(self : Value) -> Bytes? {
   match self.pieces {
     [] => Some(b"")
@@ -59,8 +75,8 @@ pub fn Value::to_bytes(self : Value) -> Bytes? {
 }
 
 ///|
-/// The text of the value, unless it refers to an environment variable or is
-/// not valid UTF-8.
+/// The text of the value, unless it refers to an environment variable or a
+/// file, or is not valid UTF-8.
 pub fn Value::to_text(self : Value) -> String? {
   guard self.to_bytes() is Some(bytes) else { return None }
   Some(@utf8.decode(bytes, ignore_bom=true)) catch {
@@ -74,9 +90,14 @@ pub fn Value::env_names(self : Value) -> Array[String] {
   self.pieces.filter_map(piece => {
     match piece {
       Env(name) => Some(name)
-      Literal(_) => None
+      Literal(_) | File(_) => None
     }
   })
+}
+
+///|
+fn Value::has_file(self : Value) -> Bool {
+  self.pieces.iter().any(piece => piece is File(_))
 }
 
 ///|
@@ -171,6 +192,7 @@ fn Value::is_field_value(self : Value) -> Bool {
   .all(piece => {
     match piece {
       Env(_) => true
+      File(_) => false
       Literal(bytes) =>
         bytes.iter().all(b => b is b'\t' || (b >= 0x20 && b != 0x7F)) &&
         (try @utf8.decode(bytes, ignore_bom=true) catch {

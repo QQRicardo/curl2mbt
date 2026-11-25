@@ -119,6 +119,26 @@ CASES = [
     ["-L", "--max-redirs", "0", "U"],
     ["-L", "-f", "U/r/302?to=/status/404"],
     ["-L", "U/r/302?to=javascript:1"],
+    # Files and forms
+    ["-d", "@f", "U"],
+    ["--data-binary", "@f", "-X", "PUT", "U"],
+    ["--json", "@f", "--json", "x", "U"],
+    ["-d", "a=1", "--data-urlencode", "n@f", "--data-urlencode", "n@empty", "U"],
+    ["--data-urlencode", "@f", "U"],
+    ["-d", "@missing", "U"],
+    ["-F", "a=1", "-F", "b=\u00e9 \"x\"", "U"],
+    ["-F", "a\n\"\u00e9=b;type=text/html;filename=\"x;\\\"\u202e\"", "U"],
+    ["-F", "a=@f", "-F", "b=<f", "-F", "c=@empty;filename=p.png", "U"],
+    ["-F", "a=@missing", "U"],
+    ["--form-string", "a=@f;", "--form-string", "b=--------------------------form", "U"],
+    ["-F", "a=1", "-H", "Content-Type: multipart/form-data", "-X", "PUT", "U"],
+    ["-L", "-F", "a=@f", "U/r/307?to=V/t"],
+    ["-L", "-F", "a=@f", "U/r/302?to=/t"],
+    ["-L", "-d", "@f", "U/r/308?to=/t"],
+    ["-L", "-d", "@f", "U/r/303?to=/t"],
+    "curl U --form-string \"a=$TOKEN\" --form-string 'b=x'\"$A\"",
+    "curl U --data-raw \"$A\" ",
+    "curl U -d \"x$A\" -d @f",
     # Texts
     "curl U -H \"Authorization: Bearer $TOKEN\" -H 'Authorization-Extra: y'",
     "curl U --data-raw \"$A$TOKEN\" -u \"$TOKEN:${A}\"",
@@ -137,7 +157,7 @@ CASES = [
     (["-H", "TE: gzip", "-H", "Upgrade: h2c", "U"], ["unsupported-header"] * 2),
     (["-L", "-b", "a=b", "U"], ["unsupported-redirects"]),
     (["http://[::1]/"], ["unsupported-host"]),
-    (["-d", "@f", "U"], ["file-not-supported"]),
+    (["-d", "@-", "U"], ["file-not-supported"]),
     ("curl U -d $'\\xff\\x00y'", ["shell-syntax"]),
 ]
 
@@ -239,6 +259,15 @@ def normal(requests, plan):
             if name == "accept-encoding" and (name not in names or plan.get("compressed")):
                 continue
             fields.append((name, value.strip(b" \t")))
+        for i, (name, value) in enumerate(fields):
+            start, found, boundary = value.partition(b"; boundary=")
+            if name == "content-type" and found:
+                # The boundary is not the same, nor is the length then.
+                if boundary in body.replace(b"--" + boundary, b""):
+                    raise AssertionError("the boundary occurs in a part")
+                fields[i] = (name, start)
+                body = body.replace(b"--" + boundary, b"--BOUNDARY")
+                fields = [(n, b"" if n == "content-length" else v) for n, v in fields]
         out.append((authority, lines[0], sorted(fields), body))
     return out
 
@@ -284,6 +313,11 @@ def main():
         return text
 
     failures, programs, rejected = [], [], 0
+    files = os.path.join(directory, "files")
+    os.mkdir(files)
+    for name, data in (("f", b"a b\r\nc\0d&\xff\n"), ("empty", b"")):
+        with open(os.path.join(files, name), "wb") as file:
+            file.write(data)
     project = os.path.join(directory, "programs")
     os.mkdir(project)
     with open(project + "/moon.mod", "w") as file:
@@ -326,7 +360,7 @@ def main():
         command = [binary] if TARGET == "native" else [shutil.which("moonrun"), binary]
         environment = dict(os.environ, **SECRETS, LC_ALL="C.UTF-8")
         REQUESTS.clear()
-        ours = subprocess.run(command, capture_output=True, env=environment)
+        ours = subprocess.run(command, capture_output=True, env=environment, cwd=files)
         our_requests = normal(REQUESTS, plan)
         options = " -q -sS"
         if arguments[0] == "--text":
@@ -337,7 +371,7 @@ def main():
         else:
             run = [CURL, "-q", "-sS"] + arguments[1:]
         REQUESTS.clear()
-        theirs = subprocess.run(run, capture_output=True, env=environment)
+        theirs = subprocess.run(run, capture_output=True, env=environment, cwd=files)
         their_requests = normal(REQUESTS, plan)
         # With -I and -f, curl shows other things than the body.
         output = "-I" in case or (theirs.returncode != 0) or ours.stdout == theirs.stdout

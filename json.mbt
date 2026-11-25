@@ -11,8 +11,8 @@ pub suberror PlanError {
 let plan_version : Int32 = 1
 
 ///|
-/// A value is a string, or an array of `{"text": ...}`, `{"base64": ...}`
-/// and `{"env": ...}`.
+/// A value is a string, or an array of `{"text": ...}`, `{"base64": ...}`,
+/// `{"env": ...}` and `{"file": ...}`.
 fn Value::to_json_value(self : Value) -> Json {
   if self.to_text() is Some(text) {
     return Json::string(text)
@@ -21,6 +21,16 @@ fn Value::to_json_value(self : Value) -> Json {
     self.pieces.map(piece => {
       match piece {
         Env(name) => Json::object({ "env": Json::string(name) })
+        File(path~, read~) => {
+          let out : Map[String, Json] = { "file": Json::string(path) }
+          match read {
+            Whole => ()
+            WithoutLineBreaks =>
+              out["without_line_breaks"] = Json::boolean(true)
+            FormEncoded(name) => out["form_encoded"] = Json::string(name)
+          }
+          Json::object(out)
+        }
         Literal(bytes) =>
           match Value::from_pieces([piece]).to_text() {
             Some(text) => Json::object({ "text": Json::string(text) })
@@ -65,6 +75,24 @@ pub fn RequestPlan::to_json(self : RequestPlan) -> Json {
   match self.body {
     Some(Data(value)) =>
       out["body"] = Json::object({ "data": value.to_json_value() })
+    Some(Multipart(parts)) =>
+      out["body"] = Json::object({
+        "multipart": Json::array(
+          parts.map(part => {
+            let field : Map[String, Json] = {
+              "name": Json::string(part.name),
+              "content": part.content.to_json_value(),
+            }
+            if part.filename is Some(filename) {
+              field["filename"] = Json::string(filename)
+            }
+            if part.content_type is Some(content_type) {
+              field["type"] = Json::string(content_type)
+            }
+            Json::object(field)
+          }),
+        ),
+      })
     None => ()
   }
   flag("compressed", self.compressed)
@@ -181,9 +209,15 @@ fn well_formed(path : String, text : String) -> String raise PlanError {
 
 ///|
 fn piece_from_json(path : String, json : Json) -> Piece raise PlanError {
-  let item = Fields::new(path, json, ["text", "base64", "env"])
+  let item = Fields::new(path, json, [
+    "text", "base64", "env", "file", "without_line_breaks", "form_encoded",
+  ])
+  if item.fields.contains("file") &&
+    !["text", "base64", "env"].iter().any(name => item.fields.contains(name)) {
+    return file_from_json(item)
+  }
   guard item.fields.length() == 1 else {
-    bad_plan(path, "must have exactly one of text, base64 and env")
+    bad_plan(path, "must have exactly one of text, base64, env and file")
   }
   if item.fields.contains("text") {
     let text = item.string("text")
@@ -203,6 +237,56 @@ fn piece_from_json(path : String, json : Json) -> Piece raise PlanError {
     bad_plan(item.at("env"), "is not the name of a variable")
   }
   Env(name)
+}
+
+///|
+fn file_from_json(item : Fields) -> Piece raise PlanError {
+  let path = well_formed(item.at("file"), item.string("file"))
+  if path is ("" | "-") || path.contains("\u0000") {
+    bad_plan(item.at("file"), "is not the name of a file")
+  }
+  let lines = item.flag("without_line_breaks")
+  let encoded = item.fields.contains("form_encoded")
+  if item.fields.length() > 2 || (lines && encoded) {
+    bad_plan(item.path, "reads a file in more than one way")
+  }
+  let read = if lines {
+    WithoutLineBreaks
+  } else if encoded {
+    let name = well_formed(item.at("form_encoded"), item.string("form_encoded"))
+    if name.contains("=") || name.contains("@") || name.contains("\u0000") {
+      bad_plan(item.at("form_encoded"), "is not the name of a field")
+    }
+    FormEncoded(name)
+  } else {
+    Whole
+  }
+  File(path~, read~)
+}
+
+///|
+fn part_from_json(path : String, json : Json) -> Part raise PlanError {
+  let item = Fields::new(path, json, ["name", "content", "filename", "type"])
+  let text = field => {
+    if item.fields.contains(field) {
+      Some(well_formed(item.at(field), item.string(field)))
+    } else {
+      None
+    }
+  }
+  let name = item.string("name")
+  if name == "" || well_formed(item.at("name"), name).contains("\u0000") {
+    bad_plan(item.at("name"), "is not the name of a part")
+  }
+  let content_type = text("type")
+  if content_type is Some(found) && !is_media_type(found) {
+    bad_plan(item.at("type"), "is not a type such as text/plain")
+  }
+  let filename = text("filename")
+  if filename is Some(found) && (found == "" || found.contains("\u0000")) {
+    bad_plan(item.at("filename"), "is not the name of a file")
+  }
+  { name, content: item.value("content"), filename, content_type, }
 }
 
 ///|
@@ -276,6 +360,9 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
         if value.split_once(b':') is None {
           bad_plan("auth.basic", "must have a colon")
         }
+        if value.has_file() {
+          bad_plan("auth.basic", "must not refer to a file")
+        }
         Some(Basic(value))
       } else {
         let value = auth.value("bearer")
@@ -288,7 +375,28 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
   }
   let body = match plan.fields.get("body") {
     None => None
-    Some(json) => Some(Data(Fields::new("body", json, ["data"]).value("data")))
+    Some(json) => {
+      let body = Fields::new("body", json, ["data", "multipart"])
+      if body.fields.length() != 1 {
+        bad_plan("body", "must have exactly one of data and multipart")
+      }
+      match body.fields.get("multipart") {
+        None => Some(Data(body.value("data")))
+        Some(Array([_, ..] as items)) => {
+          if headers
+            .iter()
+            .any(header => same_name(header.name, "Content-Type")) {
+            bad_plan("headers", "have a Content-Type beside that of the form")
+          }
+          let parts : Array[Part] = []
+          for i, item in items {
+            parts.push(part_from_json("body.multipart[\{i}]", item))
+          }
+          Some(Multipart(parts))
+        }
+        Some(_) => bad_plan("body.multipart", "must be an array with a part")
+      }
+    }
   }
   {
     http_method,

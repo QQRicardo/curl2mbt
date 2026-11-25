@@ -26,6 +26,9 @@ pub enum Auth {
 pub enum Body {
   /// These bytes.
   Data(Value)
+  /// A form, sent as multipart/form-data with any boundary that fits. The
+  /// Content-Type is not in the headers of the plan.
+  Multipart(Array[Part])
 }
 
 ///|

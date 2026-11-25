@@ -46,6 +46,8 @@ priv struct Emitter {
   /// program that holds each.
   environment : Map[String, String]
   imports : Map[String, Unit]
+  /// The functions of `helper_code` in use.
+  helpers : Map[String, Unit]
 }
 
 ///|
@@ -119,8 +121,13 @@ fn Emitter::plan_environment(self : Emitter) -> Array[String] {
     Some(Basic(value) | Bearer(value)) => names.append(value.env_names())
     None => ()
   }
-  if self.plan.body is Some(Data(value)) {
-    names.append(value.env_names())
+  match self.plan.body {
+    Some(Data(value)) => names.append(value.env_names())
+    Some(Multipart(parts)) =>
+      for part in parts {
+        names.append(part.content.env_names())
+      }
+    None => ()
   }
   names
 }
@@ -176,7 +183,7 @@ fn hex(value : Int32) -> String {
 
 ///|
 /// An expression of type String for `value`, or `None` if a part of it is
-/// not text.
+/// not text, or a file.
 fn Emitter::string_expression(self : Emitter, value : Value) -> String? {
   let buf = StringBuilder()
   buf.write_char('"')
@@ -189,6 +196,7 @@ fn Emitter::string_expression(self : Emitter, value : Value) -> String? {
         buf.write_string(escape_text(text))
       }
       Env(name) => buf.write_string("\\{\{self.variable(name)}}")
+      File(_) => return None
     }
   }
   buf.write_char('"')
@@ -239,23 +247,143 @@ fn Emitter::body_statements(
       out.push("    #|\{line}")
     }
     out.push("  let body = @utf8.encode(text)")
-  } else if value.to_bytes() is Some(bytes) &&
-    (value.to_text() is None || bytes.iter().all(byte => byte < 0x80)) {
-    out.push("  let body = \{bytes_expression(bytes)}")
-  } else if self.string_expression(value) is Some(text) {
-    self.import_package("moonbitlang/core/encoding/utf8")
-    out.push("  let body = @utf8.encode(\{text})")
   } else {
-    self.import_package("moonbitlang/core/encoding/utf8")
-    let parts = value.pieces.map(piece => {
-      match piece {
-        Literal(bytes) => bytes_expression(bytes)
-        Env(name) => "@utf8.encode(\{self.variable(name)})"
-      }
-    })
-    out.push("  let body = \{parts.join(" + ")}")
+    out.push("  let body = \{self.bytes_value(value)}")
   }
 }
+
+///|
+/// An expression of type Bytes for `value`.
+fn Emitter::bytes_value(self : Emitter, value : Value) -> String {
+  if value.to_bytes() is Some(bytes) &&
+    (value.to_text() is None || bytes.iter().all(byte => byte < 0x80)) {
+    return bytes_expression(bytes)
+  }
+  if !value.has_file() && self.string_expression(value) is Some(text) {
+    self.import_package("moonbitlang/core/encoding/utf8")
+    return "@utf8.encode(\{text})"
+  }
+  let parts = value.pieces.map(piece => {
+    match piece {
+      Literal(bytes) => bytes_expression(bytes)
+      Env(name) => {
+        self.import_package("moonbitlang/core/encoding/utf8")
+        "@utf8.encode(\{self.variable(name)})"
+      }
+      File(path~, read~) => {
+        self.import_package("moonbitlang/async/fs")
+        let file = "@fs.read_file(\"\{escape_text(path)}\").binary()"
+        match read {
+          Whole => file
+          WithoutLineBreaks => {
+            self.helpers["without_line_breaks"] = ()
+            "without_line_breaks(\{file})"
+          }
+          FormEncoded(name) => {
+            self.helpers["form_encoded"] = ()
+            "form_encoded(\{bytes_expression(@utf8.encode(name))}, \{file})"
+          }
+        }
+      }
+    }
+  })
+  parts.join(" + ")
+}
+
+///|
+/// The statements that define `boundary` and `body` for a form.
+fn Emitter::form_statements(
+  self : Emitter,
+  parts : Array[Part],
+  out : Array[String],
+) -> Unit {
+  self.helpers["form_data"] = ()
+  self.import_package("moonbitlang/core/encoding/utf8")
+  out.push("  let (boundary, body) = form_data([")
+  for part in parts {
+    out.push("    (")
+    out.push("      \"\{escape_text(part.header_text())}\",")
+    out.push("      \{self.bytes_value(part.content)},")
+    out.push("    ),")
+  }
+  out.push("  ])")
+}
+
+///|
+/// Functions that programs use for files and forms.
+let helper_code : Array[(String, String)] = [
+  (
+    "without_line_breaks",
+    (
+      #|///|
+      #|/// What curl -d sends of a file.
+      #|fn without_line_breaks(bytes : Bytes) -> Bytes {
+      #|  let kept = bytes
+      #|    .iter()
+      #|    .filter(byte => byte != b'\n' && byte != b'\r' && byte != b'\x00')
+      #|  Bytes::from_array(kept.collect())
+      #|}
+      #|
+    ),
+  ),
+  (
+    "form_encoded",
+    (
+      #|///|
+      #|/// What curl --data-urlencode sends of a file.
+      #|fn form_encoded(name : Bytes, bytes : Bytes) -> Bytes {
+      #|  guard bytes.length() > 0 else { return b"" }
+      #|  let out : Array[Byte] = name.to_array()
+      #|  if name.length() > 0 {
+      #|    out.push(b'=')
+      #|  }
+      #|  let digits = b"0123456789ABCDEF"
+      #|  for byte in bytes {
+      #|    match byte {
+      #|      b'A'..<=b'Z' | b'a'..<=b'z' | b'0'..<=b'9' | b'-' | b'.' | b'_' | b'~' =>
+      #|        out.push(byte)
+      #|      b' ' => out.push(b'+')
+      #|      _ => {
+      #|        out.push(b'%')
+      #|        out.push(digits[byte.to_int() / 16])
+      #|        out.push(digits[byte.to_int() % 16])
+      #|      }
+      #|    }
+      #|  }
+      #|  Bytes::from_array(out)
+      #|}
+      #|
+    ),
+  ),
+  (
+    "form_data",
+    (
+      #|///|
+      #|/// A multipart form of header fields and contents, and the boundary, which
+      #|/// does not occur in any of them.
+      #|fn form_data(parts : Array[(String, Bytes)]) -> (String, Bytes) {
+      #|  let mut boundary = "------------------------form"
+      #|  while parts
+      #|        .iter()
+      #|        .any(part => {
+      #|          part.0.contains(boundary) ||
+      #|          part.1.find(@utf8.encode(boundary)) is Some(_)
+      #|        }) {
+      #|    boundary = boundary + "0"
+      #|  }
+      #|  let mut body = b""
+      #|  for part in parts {
+      #|    body = body +
+      #|      @utf8.encode("--\{boundary}\r\n\{part.0}\r\n\r\n") +
+      #|      part.1 +
+      #|      b"\r\n"
+      #|  }
+      #|  (boundary, body + @utf8.encode("--\{boundary}--\r\n"))
+      #|}
+      #|
+    ),
+  ),
+]
 
 ///|
 /// The value to use for a field or credential that holds a secret: one that
@@ -599,7 +727,10 @@ fn Emitter::request_statements(
     has_body &&
     header.implied &&
     same_name(header.name, "Content-Type") &&
-    header.value.to_text() == Some("application/x-www-form-urlencoded")
+    (
+      plan.body is Some(Multipart(_)) ||
+      header.value.to_text() == Some("application/x-www-form-urlencoded")
+    )
   }
 
   let always = headers.filter(entry => {
@@ -710,24 +841,7 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
     Some(Basic(value)) => {
       self.import_package("moonbitlang/core/encoding/base64")
       let header = Header::{ name: "Authorization", value, implied: false, }
-      let bytes = match (value.to_bytes(), self.string_expression(value)) {
-        (Some(bytes), _) => bytes_expression(bytes)
-        (None, Some(text)) => {
-          self.import_package("moonbitlang/core/encoding/utf8")
-          "@utf8.encode(\{text})"
-        }
-        (None, None) => {
-          self.import_package("moonbitlang/core/encoding/utf8")
-          value.pieces
-          .map(piece => {
-            match piece {
-              Literal(bytes) => bytes_expression(bytes)
-              Env(name) => "@utf8.encode(\{self.variable(name)})"
-            }
-          })
-          .join(" + ")
-        }
-      }
+      let bytes = self.bytes_value(value)
       fields.push((header, "\"Basic \" + @base64.encode(\{bytes})"))
     }
     None => ()
@@ -740,6 +854,15 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
   let body_lines : Array[String] = []
   match plan.body {
     Some(Data(value)) => self.body_statements(value, body_lines)
+    Some(Multipart(parts)) => {
+      self.form_statements(parts, body_lines)
+      let header = Header::{
+        name: "Content-Type",
+        value: Value::literal("multipart/form-data"),
+        implied: true,
+      }
+      fields.push((header, "\"multipart/form-data; boundary=\\{boundary}\""))
+    }
     None => ()
   }
   let request_lines = self.request_statements(fields, plan.body is Some(_))
@@ -752,6 +875,11 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
       "  match @env.get_env_var(name) {", "    Some(value) => value", "    None => fail(\"the environment variable \\{name} is not set\")",
       "  }", "}", "",
     ])
+  }
+  for entry in helper_code {
+    if self.helpers.contains(entry.0) {
+      lines.append(entry.1.split("\n").map(line => line.to_owned()).collect())
+    }
   }
   if plan.follow_redirects {
     lines.append(
@@ -817,6 +945,7 @@ pub fn RequestPlan::emit(
     report: Report::{ found: [], },
     environment: Map([]),
     imports: Map([]),
+    helpers: Map([]),
   }
   match target {
     Async => emitter.emit(secrets)
