@@ -1,0 +1,126 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "QQRicardo/curl2mbt"
+
+import {
+  "moonbitlang/core/debug",
+  "moonbitlang/core/json",
+}
+
+// Values
+pub fn parse(StringView, shell? : Shell) -> Parsed raise CurlError
+
+pub fn parse_argv(ArrayView[String]) -> Parsed raise CurlError
+
+// Errors
+#derive(@debug.Debug)
+pub suberror CurlError {
+  CurlError(Array[Diagnostic])
+}
+
+#derive(@debug.Debug)
+pub suberror PlanError {
+  PlanError(path~ : String, message~ : String)
+}
+
+// Types and methods
+#derive(Eq, @debug.Debug)
+pub enum Auth {
+  Basic(Value)
+  Bearer(Value)
+}
+
+#derive(Eq, @debug.Debug)
+pub enum Body {
+  Data(Value)
+}
+
+#derive(Eq, @debug.Debug)
+pub struct Diagnostic {
+  severity : Severity
+  code : String
+  message : String
+  help : String?
+  location : Location?
+}
+pub fn Diagnostic::render(Self, source? : StringView) -> String
+
+#derive(Eq, @debug.Debug)
+pub struct Header {
+  name : String
+  value : Value
+  implied : Bool
+}
+
+#derive(Eq, @debug.Debug)
+pub(all) enum Location {
+  Text(start~ : Int32, end~ : Int32)
+  Argument(Int32)
+}
+
+pub struct Parsed {
+  plan : RequestPlan
+  diagnostics : Array[Diagnostic]
+}
+
+#derive(Eq, @debug.Debug)
+pub(all) enum Piece {
+  Literal(Bytes)
+  Env(String)
+}
+
+#derive(Eq, @debug.Debug)
+pub struct RequestPlan {
+  http_method : String
+  explicit_method : Bool
+  url : Url
+  headers : Array[Header]
+  omit_user_agent : Bool
+  auth : Auth?
+  body : Body?
+  compressed : Bool
+  follow_redirects : Bool
+  max_redirects : Int32
+  cookie_engine : Bool
+  insecure : Bool
+  fail_on_error : Bool
+  max_time_ms : Int32?
+}
+pub fn RequestPlan::from_json(@json.Json) -> Self raise PlanError
+pub fn RequestPlan::to_json(Self) -> @json.Json
+
+#derive(Eq, @debug.Debug)
+pub(all) enum Severity {
+  Error
+  Warning
+  Note
+}
+
+#derive(Eq, @debug.Debug)
+pub(all) enum Shell {
+  Posix
+}
+
+#derive(Eq, @debug.Debug)
+pub struct Url {
+  scheme : String
+  host : String
+  port : Int32?
+  path : String
+  query : String?
+}
+pub fn Url::authority(Self) -> String
+pub fn Url::target(Self) -> String
+pub fn Url::to_string(Self) -> String
+
+#derive(Eq, @debug.Debug)
+pub struct Value {
+  // private fields
+}
+pub fn Value::env_names(Self) -> Array[String]
+pub fn Value::pieces(Self) -> ArrayView[Piece]
+pub fn Value::to_bytes(Self) -> Bytes?
+pub fn Value::to_text(Self) -> String?
+
+// Type aliases
+
+// Traits

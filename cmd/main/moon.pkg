@@ -1,0 +1,11 @@
+import {
+  "QQRicardo/curl2mbt",
+  "moonbitlang/core/env",
+  "moonbitlang/x/fs",
+}
+
+pkgtype(kind: "executable")
+
+import {
+  "moonbitlang/core/json",
+} for "wbtest"

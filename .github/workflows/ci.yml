@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Newer toolchains may format code differently, so this changes on purpose
+  # only. Versioned downloads disappear some weeks after a release.
+  MOONBIT_INSTALL_VERSION: "0.10.22+124d61d05"
+
+jobs:
+  test:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install MoonBit (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Install MoonBit (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+          irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Set up MSVC (Windows native backend)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1.13.0
+
+      - name: Toolchain version
+        run: moon version --all
+
+      - name: Fetch the registry index
+        run: moon update
+
+      - name: Format check
+        run: moon fmt --check
+
+      - name: Interface files are up to date
+        shell: bash
+        run: |
+          moon info
+          git diff --exit-code
+
+      - name: Check
+        shell: bash
+        run: |
+          for target in wasm wasm-gc js native; do
+            moon check --deny-warn --target $target
+          done
+
+      - name: Test wasm
+        run: moon test --target wasm
+      - name: Test wasm-gc
+        run: moon test --target wasm-gc
+      - name: Test js
+        run: moon test --target js
+      - name: Test native
+        run: moon test --target native
+
+      - name: Command line tool on every backend
+        shell: bash
+        run: |
+          for target in wasm wasm-gc js native; do
+            moon run cmd/main --target $target -- \
+              --text 'curl -u "u:$P" -d a=1 https://example.com/x' > out.json
+            grep -q '"env": "P"' out.json
+            if moon run cmd/main --target $target -- curl -F a=b h > out.txt; then
+              exit 1
+            fi
+            grep -q '^error\[unsupported-option\] at argument 1' out.txt
+          done
+
+  compare:
+    name: Compare with curl and bash
+    runs-on: ubuntu-24.04
+    # Its curl is recent; older ones do not know all that curl2mbt reads.
+    container: ubuntu:26.04
+    steps:
+      - name: Install curl, bash, Python and a C compiler
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends bash ca-certificates curl gcc git libc6-dev python3
+          curl --version
+          bash --version
+
+      - uses: actions/checkout@v5
+
+      - name: Install MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Fetch the registry index
+        run: moon update
+
+      - name: Compare
+        run: |
+          moon build --target native --release cmd/main
+          python3 tools/compare.py "$PWD/_build/native/release/build/QQRicardo/curl2mbt-cli/main/main.exe"
