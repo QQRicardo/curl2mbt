@@ -112,3 +112,31 @@ test "wrong arguments" {
   assert_eq(run(["--help"], no_file).status, 0)
   assert_eq(run(["wget", "x"], no_file).status, 1)
 }
+
+///|
+test "config files" {
+  fn read(path : String) -> String raise {
+    match path {
+      "ok.conf" => "url = http://h/\ndata = \"a b\"\n"
+      "bad.conf" => "url = http://h/\ndata = a b\n"
+      _ => fail("no such file")
+    }
+  }
+
+  inspect(
+    run(["--to-curl", "posix", "--config", "ok.conf"], read).output,
+    content="curl --data-raw 'a b' http://h/",
+  )
+  let outcome = run(["--config", "bad.conf"], read)
+  assert_eq(outcome.status, 1)
+  inspect(
+    outcome.output,
+    content=(
+      #|error[config-syntax] at 2:10: curl ends the value at the first blank and ignores the rest
+      #|  help: put the whole value in quotes
+    ),
+  )
+  assert_eq(run(["--config", "none.conf"], read).status, 2)
+  assert_eq(run(["--config", "ok.conf", "x"], read).status, 2)
+  assert_eq(run(["--shell", "cmd", "--config", "ok.conf"], read).status, 2)
+}

@@ -547,6 +547,13 @@ fn Settings::apply(self : Settings, option : Occurrence) -> Unit {
       }
     "globoff" => self.globoff = option.on
     "path-as-is" => self.path_as_is = option.on
+    "config" =>
+      self.report.error(
+        "unsupported-option",
+        "\{option.written} is not supported, because the file is read when curl runs",
+        help="read the file with parse_config, as curl2mbt --config FILE does",
+        location=option.location,
+      )
     _ =>
       self.report.error(
         "unsupported-option",

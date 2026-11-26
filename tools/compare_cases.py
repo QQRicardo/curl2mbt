@@ -441,3 +441,48 @@ TEXT_PARTS = [
     ",", "..", "#", "~", "=", "!", "%", "^", "@", ":", "/", "é", "\U0001f600",
     "'q q'", '"r $A_1 r"', "$'s\\ts'", "\\ ", "\\q",
 ]
+
+CONFIG_CASES = [("same", text) for text in [
+    "url = http://HOST/",
+    'url = "http://HOST/a"\ndata = "x\\ty\\"z\\\\w\\qend"',
+    "# comment\n\nurl http://HOST/b\n-H \"X-A: 1\"\nheader: \"X-B: 2\"\nheader=\"X-C: 3\"\n--header \"X-D: 4\"",
+    "url=http://HOST/c\nsilent\nno-silent\nrequest PUT",
+    "url = http://HOST/d\n-sd v1\n-d=val\n--data=v2",
+    "url = http://HOST/e\ndata = x # c\ndata = x#y\ndata = #z",
+    "url = http://HOST/f\r\ndata = \"x\"\r\n",
+    "url :=: http://HOST/g\ndata == \"é\"\nuser-agent = \"\"",
+    "url = http://HOST/h\ndata = \"1\\n2\\r3\\v4\\b5\"",
+    "url = http://HOST/i\ndata-raw = @x\ndata = 'q'\nsilent = \"\"",
+    "url = http://HOST/j\nhead=\n",
+    "url = http://HOST/k\ndata \"a\" # c",
+    "url = http://HOST/l\n-u u:p\njson = {\"k\":1}",
+]] + [
+    (rejected("config-syntax"), "url = http://HOST/\n  data = x"),
+    (rejected("config-syntax"), "url = http://HOST/\ndata = a b"),
+    (rejected("config-syntax"), "url = http://HOST/\ndata = \"a\" b"),
+    (rejected("config-syntax"), "url = http://HOST/\ndata = \"a"),
+    (rejected("config-syntax"), "url = http://HOST/\ndata = \"a\\"),
+    (rejected("unexpected-value"), "url = http://HOST/\nsilent yes"),
+    (rejected("unexpected-value"), "url = http://HOST/\n-s x"),
+    (rejected("missing-value"), "url = http://HOST/\ndata"),
+    (rejected("missing-value"), "url = http://HOST/\ndata ="),
+    (rejected("unknown-option", "no-url"), "URL = http://HOST/"),
+    (rejected("config-syntax"), "url = http://HOST/\ndata\r= x"),
+    (rejected("unknown-option", "no-url"), "http://HOST/"),
+    (rejected("unknown-option", "no-url"), "\ufeffurl = http://HOST/"),
+    (rejected("unsupported-option"), "url = http://HOST/\n-K other"),
+    (rejected("several-urls"), "url = http://HOST/\nurl = http://HOST/"),
+]
+
+# Put together at random into lines after `url = http://HOST/`: an option, a
+# separator and parts of a value. None of them writes a file.
+CONFIG_OPTIONS = [
+    "data", "data-raw", "-d", "--data", "header", "-H", "json", "silent",
+    "-s", "head", "user-agent", "-A", "request", "", "#", " ",
+]
+CONFIG_SEPARATORS = ["", " ", "=", " = ", ":", "\t", "=="]
+CONFIG_PARTS = [
+    "x", "y", "-s",
+    " ", " ", "=", ":", "\t", '"', '"', "\\", "\\t", "\\n", "\\q", '\\"', "#",
+    "x", "X-A: b", "é", "'", "\r", "{}", "a=1", "-", "--",
+]

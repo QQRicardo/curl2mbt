@@ -325,15 +325,7 @@ fn parse_words(
     [{ value, location, }, .. rest] =>
       if is_curl(value, windows~) {
         let (options, urls) = split_options(rest, report)
-        let settings = Settings::new(report, windows~)
-        for option in options {
-          settings.apply(option)
-        }
-        settings.urls.append(urls)
-        let plan = settings.build()
-        if plan is Some(plan) && !report.has_errors() {
-          return { plan, diagnostics: report.sorted(), }
-        }
+        return plan_of_options(options, urls, report, windows~)
       } else {
         report.error(
           "not-curl",
@@ -342,6 +334,26 @@ fn parse_words(
           location~,
         )
       }
+  }
+  raise CurlError(report.sorted())
+}
+
+///|
+/// The plan of `options` and `urls`, or every reason there is none.
+fn plan_of_options(
+  options : Array[Occurrence],
+  urls : Array[(Value, Location)],
+  report : Report,
+  windows~ : Bool,
+) -> Parsed raise CurlError {
+  let settings = Settings::new(report, windows~)
+  for option in options {
+    settings.apply(option)
+  }
+  settings.urls.append(urls)
+  let plan = settings.build()
+  if plan is Some(plan) && !report.has_errors() {
+    return { plan, diagnostics: report.sorted(), }
   }
   raise CurlError(report.sorted())
 }

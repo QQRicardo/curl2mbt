@@ -72,9 +72,11 @@ $ moon run cmd/main -- --text 'curl -H "X-Key: $KEY" https://example.com/'
 $ moon run cmd/main -- --file request.sh
 $ moon run cmd/main -- --shell cmd --file request.txt
 $ moon run cmd/main -- --shell cmd --to-curl posix --file request.txt
+$ moon run cmd/main -- --config request.conf
 ```
 
-`--shell cmd` is for commands that were copied for the prompt of Windows. The
+`--shell cmd` is for commands that were copied for the prompt of Windows, and
+`--config` for a config file of curl, which `curl -K` reads. The
 tool prints a program. With `--plan` it prints the request as JSON instead, and
 with `--to-curl posix` or `--to-curl cmd` as a curl command for that shell. It
 exits with 1 if the command is rejected, with every reason.
@@ -131,6 +133,18 @@ test "write the command for another shell" {
 }
 
 ///|
+test "read a config file" {
+  let text =
+    #|# As curl -K reads it.
+    #|url = "https://api.example.com/v1/items"
+    #|header = "Accept: application/json"
+    #|-u user:password
+  let plan = @curl2mbt.parse_config(text).plan
+  inspect(plan.headers[0].name, content="Accept")
+  assert_true(plan.auth is Some(Basic(_)))
+}
+
+///|
 test "what cannot be represented" {
   let text = "curl --digest -u user:pass https://example.com/{id} | jq ."
   let found = @curl2mbt.parse(text).diagnostics catch {
@@ -151,7 +165,8 @@ test "what cannot be represented" {
 
 `parse` reads the text of a command, for a POSIX shell or with `shell=Cmd` for
 the prompt of Windows, and `parse_argv` a command that has been split into
-arguments. Both give a `Parsed`: the `plan`, and warnings and notes about the
+arguments. `parse_config` reads a config file of curl, as `curl -K` does. All
+give a `Parsed`: the `plan`, and warnings and notes about the
 command. `RequestPlan::to_json` and `RequestPlan::from_json` keep plans in
 JSON. Messages never repeat option values, which may hold passwords.
 
@@ -171,6 +186,7 @@ dependency and works on every backend; the programs run on native and wasm.
 |---|---|
 | Shell | POSIX shell and bash words: quotes, `$'...'`, continued lines, comments, and `"$NAME"` or `"${NAME}"` as references to environment variables |
 | Windows cmd | the prompt, not batch files: carets, quotes, continued lines, and `"%NAME%"` as a reference to an environment variable |
+| Config files | what `-K` reads: an option on each line, with or without dashes, its value after blanks, `=` or `:`, in quotes with `\t`, `\n`, `\r` and `\v`, or without; comments; CR LF; values are literal |
 | Method | `-X`, `-I`, `-G` |
 | URL | http and https; `--url`, `--url-query`, `-g`, `--path-as-is`, user information |
 | Header fields | `-H` with all its forms, `-A`, `-e`, `-b` with cookies, `-r` |
@@ -183,11 +199,16 @@ dependency and works on every backend; the programs run on native and wasm.
 | Where the response goes | `-o`, `-O`, `--remote-name-all`, `--output-dir`, `--create-dirs`; the first of `-o` and `-O` counts, and a later one is reported |
 | Reported as without effect on the request | options about headers in the output, progress and connection reuse |
 
-Everything else is rejected: the other options of curl 8.19.0, the standard
-input, header fields and cookies from files, forms inside forms, several URLs,
-variables in URLs and file names, pipelines, redirections and substitutions,
-other protocols, header lines that change how the message is framed, and URLs
-that clients read differently.
+Everything else is rejected: the other options of curl 8.19.0, `-K` inside a
+command, the standard input, header fields and cookies from files, forms inside
+forms, several URLs, variables in URLs and file names, pipelines, redirections
+and substitutions, other protocols, header lines that change how the message is
+framed, and URLs that clients read differently.
+
+In config files, lines that curl reads otherwise than they look are rejected:
+blanks before the option, a value that goes on after a blank without quotes,
+text after the closing quote, a quote that is not closed, and CR, vertical
+tabs or form feeds inside a line.
 
 Three things differ from a shell on purpose. An unset variable is an empty string
 to a shell; here it stays a reference, and whoever sends the request decides.
@@ -246,6 +267,7 @@ Programs differ from curl in this:
   bash and compares the arguments. Listed and random cases; CI runs it with the
   curl and bash of Ubuntu 26.04. Not compared: the User-Agent curl sends by
   default, Host unless the command sets it, and blanks around header values.
+  Config files go to `curl -K` in the same way, listed and random ones.
   What `--to-curl posix` writes for each command goes through bash and curl
   again, and the request must be the same.
 - `tools/compare_programs.py` builds the programs for a list of commands, runs

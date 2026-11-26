@@ -11,6 +11,8 @@ pub fn parse(StringView, shell? : Shell) -> Parsed raise CurlError
 
 pub fn parse_argv(ArrayView[String]) -> Parsed raise CurlError
 
+pub fn parse_config(StringView) -> Parsed raise CurlError
+
 // Errors
 #derive(@debug.Debug)
 pub suberror CurlError {

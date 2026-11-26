@@ -12,7 +12,10 @@ script runs on 127.0.0.1. SEED in the environment picks other random cases.
    named curl that only shows its arguments; the plan of the text must be the
    plan of these arguments.
 
-3. Each command of 1 and 2 that curl2mbt accepts is written back with
+3. Each config file in `CONFIG_CASES`, and random ones, are read by curl with
+   `-K` and by curl2mbt with `--config`, and compared as in 1.
+
+4. Each command of 1, 2 and 3 that curl2mbt accepts is written back with
    `--to-curl posix`. bash runs that text with curl, and the request must be
    the same, or with the program that shows its arguments, and the plan of
    these must be the same but for which header fields are implied.
@@ -36,7 +39,9 @@ import tempfile
 import threading
 import urllib.parse
 
-from compare_cases import ARGV_CASES, ARGV_PARTS, FORM_PARTS, TEXT_CASES, TEXT_PARTS
+from compare_cases import (
+    ARGV_CASES, ARGV_PARTS, CONFIG_CASES, CONFIG_OPTIONS, CONFIG_PARTS, CONFIG_SEPARATORS, FORM_PARTS, TEXT_CASES, TEXT_PARTS,
+)
 
 CLI = sys.argv[1:]
 CURL = shutil.which("curl")
@@ -51,6 +56,7 @@ VARIABLES = {"TOKEN": "t0k en", "EMPTY": "", "A_1": "x=y"}
 RANDOM_ARGV = 1500
 RANDOM_FORM = 1500
 RANDOM_TEXT = 5000
+RANDOM_CONFIG = 1500
 
 
 class Server:
@@ -239,8 +245,9 @@ def tally(outcome):
 
 
 def round_trip_argv(server, arguments, plan, want):
-    """Sends what `--to-curl` writes for `arguments` with bash and curl."""
-    text = to_curl(["curl"] + arguments)
+    """Sends what `--to-curl` writes for the command of `arguments` with bash
+    and curl."""
+    text = to_curl(arguments)
     if text is None:
         return tally("not expressible")
     script = DIRECTORY + "-script"
@@ -292,7 +299,21 @@ def names_missing_file(node):
 def compare_argv(server, arguments):
     """`same`, `rejected ...`, or what differs."""
     arguments = [a.replace("HOST", server.authority) for a in arguments]
-    plan, codes = run_cli(["curl"] + arguments)
+    return compare_with_curl(server, ["curl"] + arguments, arguments)
+
+
+def compare_config(server, text):
+    """Like `compare_argv`, for the text of a config file."""
+    path = DIRECTORY + "-config"
+    with open(path, "w", encoding="utf-8", newline="") as file:
+        file.write(text.replace("HOST", server.authority))
+    return compare_with_curl(server, ["--config", path], ["-K", path])
+
+
+def compare_with_curl(server, cli_arguments, arguments):
+    """Compares the plan of `cli_arguments` with what curl sends for
+    `arguments`."""
+    plan, codes = run_cli(cli_arguments)
     if plan is None:
         return "rejected " + " ".join(codes)
     server.requests.clear()
@@ -309,7 +330,7 @@ def compare_argv(server, arguments):
         return str(error)
     if want != got:
         return "plan %r\ncurl %r" % (want, got)
-    round_trip_argv(server, arguments, plan, want)
+    round_trip_argv(server, cli_arguments, plan, want)
     return "same"
 
 
@@ -404,6 +425,16 @@ def main():
         text = "".join(source.choice(FORM_PARTS) for _ in range(source.randint(1, 8)))
         case = ["-F", "a=" + text, "http://HOST/"]
         count("random forms", check("form", case, compare_argv(server, case)))
+
+    for want, text in CONFIG_CASES:
+        count("listed config files", check("config", text, compare_config(server, text), want))
+    for _ in range(RANDOM_CONFIG):
+        lines = ["url = http://HOST/"]
+        for _ in range(source.randint(1, 3)):
+            option = source.choice(CONFIG_OPTIONS) + source.choice(CONFIG_SEPARATORS)
+            lines.append(option + "".join(source.choice(CONFIG_PARTS) for _ in range(source.randint(0, 6))))
+        text = "\n".join(lines) + source.choice(["", "\n", "\r\n"])
+        count("random config files", check("config", text, compare_config(server, text)))
 
     with tempfile.TemporaryDirectory() as directory:
         os.mkdir(os.path.join(directory, "empty"))

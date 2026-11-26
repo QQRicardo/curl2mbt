@@ -6,6 +6,7 @@ let usage : String =
   #|Usage: curl2mbt [OPTIONS] curl ARG...
   #|       curl2mbt [OPTIONS] --text COMMAND
   #|       curl2mbt [OPTIONS] --file FILE
+  #|       curl2mbt [OPTIONS] --config FILE
   #|
   #|Reads a curl command and prints a MoonBit program that makes the same
   #|request with moonbitlang/async. Nothing is sent. A command that cannot be
@@ -16,6 +17,8 @@ let usage : String =
   #|  --text COMMAND    the command as the text a shell reads; "$NAME" stays a
   #|                    reference to an environment variable
   #|  --file FILE       like --text, with the text in a UTF-8 file
+  #|  --config FILE     a config file of curl, as curl -K FILE reads it, in
+  #|                    UTF-8; its values are taken literally
   #|  --shell SHELL     what reads the text: posix, a POSIX shell or bash, which
   #|                    is the default, or cmd, the prompt of Windows
   #|  --plan            print the request as JSON instead of a program
@@ -225,8 +228,20 @@ fn run(
       }
       run_text(text, settings)
     }
-    ["--text" | "--file", ..] =>
-      usage_error("--text and --file take one argument, the last one")
+    ["--config", path] => {
+      if shell is Some(_) {
+        return usage_error("--shell is for --text and --file")
+      }
+      let text = read_file(path) catch {
+        _ => return usage_error("the file cannot be read as UTF-8 text")
+      }
+      let parsed = @curl2mbt.parse_config(text) catch {
+        CurlError(found) => return rejected(found, source=text)
+      }
+      output(parsed, settings, source=text)
+    }
+    ["--text" | "--file" | "--config", ..] =>
+      usage_error("--text, --file and --config take one argument, the last one")
     [first, ..] if first.has_prefix("-") =>
       usage_error("unknown option; options of curl come after the word curl")
     _ if shell is Some(_) =>
