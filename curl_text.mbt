@@ -226,6 +226,13 @@ fn RequestPlan::curl_arguments(
   if self.insecure {
     flag("-k")
   }
+  if self.proxy is Some(proxy) {
+    option("-x", Argument::text(proxy.to_string()))
+    if proxy.user is Some(user) {
+      option("-U", Argument::value(user))
+    }
+    flag("-p")
+  }
   if self.fail_with_body {
     flag("--fail-with-body")
   } else if self.fail_on_error {

@@ -32,7 +32,7 @@ ASYNC = "moonbitlang/async@0.22.10"
 SECRETS = {
     "TOKEN": "t0k en", "A": "x=y", "BEARER_TOKEN": "sec ret", "BASIC_AUTH": "u:p\u00e9",
     "COOKIE": "c=1; d=2", "X_API_KEY": "k\u00e9y", "BASIC_CREDENTIALS": "dTpw",
-    "AUTHORIZATION_VALUE": "v", "BEARER_TOKEN_2": "other",
+    "AUTHORIZATION_VALUE": "v", "BEARER_TOKEN_2": "other", "PROXY_AUTH": "uA:p:",
 }
 
 # Each case is a command line, or a text for a POSIX shell; with the codes of
@@ -169,7 +169,8 @@ CASES = [
     ["--remote-name-all", "--no-remote-name", "U/y"],
     ["-O", "--no-remote-name", "U/y"],
     # Write-out
-    ["-w", "[%{http_code}][%{response_code}][%{content_type}][%{size_download}][%{url_effective}][%{method}]\\n", "U/a?q=1#f"],
+    ["-w", "[%{http_code}][%{response_code}][%{content_type}][%{size_download}][%{url_effective}][%{method}]\\n", "U/a?q=1"],
+    (["-w", "%{url_effective}", "U/a#f"], ["unsupported-value"]),
     ["-w", "%%|%x|\\t|\\\\|\\x|%{stderr}to err%{stdout}|%{num_redirects}", "-d", "x", "U"],
     ["-L", "-w", "[%{num_redirects}][%{url_effective}][%{method}][%{http_code}]", "-d", "x", "U/r/302?to=/t"],
     ["-L", "-w", "[%{num_redirects}][%{url_effective}][%{method}]", "-d", "x", "U/r/307?to=/t%3Fz=1"],
@@ -178,6 +179,22 @@ CASES = [
     ["--fail-with-body", "-w", "[%{http_code}][%{size_download}]", "U/status/404"],
     ["-I", "-w", "[%{size_download}][%{method}]", "U"],
     ["-o", "out", "-w", "[%{size_download}]", "U"],
+    # Proxies
+    ["-p", "-x", "P", "U/a?b=1"],
+    ["-p", "-x", "HOSTP", "U/a"],
+    ["-p", "-x", "http://u%41:p%3a@HOSTP", "U/a"],
+    ["-p", "-x", "P", "-U", "uA:p:", "-A", "agent", "-d", "x", "U/a"],
+    (["-p", "-x", "P", "-U", ":", "U/a"], ["unsupported-value"]),
+    ["-p", "-x", "P", "-L", "U/r/302?to=V/t"],
+    ["-p", "-x", "P", "-f", "U/status/404"],
+    ["-p", "-x", "P", "http://127.0.0.1:1/"],
+    ["-k", "-x", "P", "S/"],
+    ["-k", "-x", "P", "-L", "-p", "S/"],
+    ["-x", "", "U/direct"],
+    (["-x", "P", "U"], ["proxy-without-tunnel"]),
+    (["-x", "P", "-L", "-k", "S/"], ["proxy-without-tunnel"]),
+    (["-x", "socks5://HOSTP", "-p", "U"], ["unsupported-proxy"]),
+    (["-x", "http://[::1]:1", "-p", "U"], ["unsupported-proxy"]),
     # Retries
     ["--retry", "2", "--retry-delay", "0.2", "U/flaky/503/1"],
     ["--retry", "1", "--retry-delay", "0.2", "U/flaky/503/3"],
@@ -229,6 +246,74 @@ CASES = [
     (["--no-clobber", "-o", "old", "U"], ["unsupported-option"]),
     ("curl U -d $'\\xff\\x00y'", ["shell-syntax"]),
 ]
+
+
+class Proxy:
+    """A proxy that tunnels CONNECT requests to 127.0.0.1, except to port 1."""
+
+    def __init__(self):
+        self.socket = socket.socket()
+        self.socket.bind(("127.0.0.1", 0))
+        self.socket.listen(16)
+        self.authority = "127.0.0.1:%d" % self.socket.getsockname()[1]
+        threading.Thread(target=self.serve, daemon=True).start()
+
+    def serve(self):
+        while True:
+            connection, _ = self.socket.accept()
+            threading.Thread(target=self.handle, args=(connection,), daemon=True).start()
+
+    def handle(self, connection):
+        connection.settimeout(3)
+        data = b""
+        try:
+            while b"\r\n\r\n" not in data:
+                chunk = connection.recv(65536)
+                if not chunk:
+                    return
+                data += chunk
+            head, _, rest = data.partition(b"\r\n\r\n")
+            lines = head.split(b"\r\n")
+            # The request line, and what the command decides of the rest.
+            kept = [lines[0]] + [
+                line for line in lines[1:]
+                if line.split(b":")[0].lower() in (b"proxy-authorization", b"user-agent")
+            ]
+            REQUESTS.append(("proxy", b"\r\n".join(kept) + b"\r\n\r\n"))
+            target = lines[0].split(b" ")[1].decode()
+            host, _, port = target.rpartition(":")
+            if lines[0].split(b" ")[0] != b"CONNECT" or host != "127.0.0.1" or port == "1":
+                connection.sendall(b"HTTP/1.1 403 No\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                return
+            upstream = socket.create_connection((host, int(port)), timeout=3)
+            connection.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+            if rest:
+                upstream.sendall(rest)
+
+            def pipe(source, sink):
+                try:
+                    while True:
+                        chunk = source.recv(65536)
+                        if not chunk:
+                            break
+                        sink.sendall(chunk)
+                except OSError:
+                    pass
+                for end in (source, sink):
+                    try:
+                        end.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+
+            back = threading.Thread(target=pipe, args=(upstream, connection), daemon=True)
+            back.start()
+            pipe(connection, upstream)
+            back.join(5)
+            upstream.close()
+        except OSError:
+            pass
+        finally:
+            connection.close()
 
 
 class Server:
@@ -386,7 +471,7 @@ def cli(arguments):
 
 def main():
     directory = tempfile.mkdtemp()
-    servers = {"U": Server(), "V": Server()}
+    servers = {"U": Server(), "V": Server(), "P": Proxy()}
     if shutil.which("openssl"):
         subprocess.run(
             ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2",
@@ -399,6 +484,7 @@ def main():
 
     def fill(text):
         text = text.replace("HOSTV", servers["V"].authority)
+        text = text.replace("HOSTP", servers["P"].authority)
         for name, server in servers.items():
             scheme = "https" if name == "S" else "http"
             for before in ("", "=", " "):
@@ -489,10 +575,25 @@ def main():
             same += 1
     for failure in failures:
         print(failure)
+        annotate(failure)
     print("%s: %d programs behave like curl, %d commands rejected, %d failures" % (TARGET, same, rejected, len(failures)))
     shutil.rmtree(directory, ignore_errors=True)
     if failures:
         raise SystemExit(1)
 
 
-main()
+
+def annotate(text):
+    """Shows a failure on the page of a GitHub Actions run, where anyone can
+    read it."""
+    if os.environ.get("GITHUB_ACTIONS"):
+        line = text.replace("%", "%25").replace(chr(13), "%0D").replace(chr(10), "%0A")
+        print("::error title=%s programs::%s" % (TARGET, line[:3000]))
+
+
+try:
+    main()
+except BaseException:
+    import traceback
+    annotate(traceback.format_exc()[-2500:])
+    raise

@@ -91,6 +91,9 @@ priv struct Settings {
   mut follow : Bool
   mut max_redirects : Int32
   mut insecure : Bool
+  mut proxy : (String, Location)?
+  mut proxy_user : (Value, Location)?
+  mut proxy_tunnel : Bool
   mut fail : Bool
   mut max_time_ms : Int32?
   mut retry_count : (Int32, Location)?
@@ -394,6 +397,9 @@ fn Settings::new(report : Report, windows~ : Bool) -> Settings {
     follow: false,
     max_redirects: default_max_redirects,
     insecure: false,
+    proxy: None,
+    proxy_user: None,
+    proxy_tunnel: false,
     fail: false,
     max_time_ms: None,
     retry_count: None,
@@ -544,6 +550,14 @@ fn Settings::apply(self : Settings, option : Occurrence) -> Unit {
     "location" => self.follow = option.on
     "max-redirs" => self.apply_max_redirs(option)
     "insecure" => self.insecure = option.on
+    "proxy" =>
+      if self.text(option) is Some(text) {
+        self.proxy = Some((text, option.value_location))
+      }
+    "proxy-user" => self.apply_proxy_user(option)
+    "proxytunnel" => self.proxy_tunnel = option.on
+    // The default of curl, and the only kind of proxy authentication here.
+    "proxy-basic" => ()
     "fail" => self.fail = option.on
     "fail-with-body" => self.fail_with_body = option.on
     "output" => self.apply_output(option)

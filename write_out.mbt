@@ -133,3 +133,10 @@ fn Settings::apply_write_out(self : Settings, option : Occurrence) -> Unit {
       )
   }
 }
+
+///|
+/// Whether the text of `-w` writes `%{name}`.
+fn writes_variable(text : String, name : String) -> Bool {
+  parse_write_out(text) is Ok(parts) &&
+  parts.iter().any(part => part is Variable(found) && found == name)
+}

@@ -674,6 +674,7 @@ fn Emitter::request_statements(
   self : Emitter,
   headers : Array[(Header, String)],
   has_body : Bool,
+  proxy~ : String?,
 ) -> Array[String] {
   let plan = self.plan
   let out : Array[String] = []
@@ -687,7 +688,13 @@ fn Emitter::request_statements(
   let origin = "\{plan.url.scheme}://\{plan.url.authority()}"
   let quoted = text => "\"\{escape_text(text)}\""
   if !plan.follow_redirects {
-    out.push("  let client = @http.Client(\{quoted(origin)}\{trust})")
+    let through = if proxy is Some(proxy) {
+      out.push("  let proxy = \{proxy}")
+      ", proxy~"
+    } else {
+      ""
+    }
+    out.push("  let client = @http.Client(\{quoted(origin)}\{trust}\{through})")
     out.push("  defer client.close()")
     let entries = headers.map(entry => (quoted(entry.0.name), entry.1))
     if has_body {
@@ -716,7 +723,13 @@ fn Emitter::request_statements(
     out.push("  let mut with_body = true")
   }
   out.push("  for redirects = 0; ; redirects = redirects + 1 {")
-  out.push("    let client = @http.Client(origin\{trust})")
+  let through = if proxy is Some(proxy) {
+    out.push("    let proxy = \{proxy}")
+    ", proxy~"
+  } else {
+    ""
+  }
+  out.push("    let client = @http.Client(origin\{trust}\{through})")
   out.push("    defer client.close()")
   fn is_credential(header : Header) -> Bool {
     ["authorization", "cookie"].contains(header.name.to_lower())
@@ -785,8 +798,16 @@ fn Emitter::request_statements(
   out.push("        location.trim().to_owned()")
   out.push("      _ => \"\"")
   out.push("    }")
-  out.push("    if location == \"\" {")
   let fields = self.transfer_fields()
+  if fields.contains("url") {
+    // curl writes the fragment of the redirect too.
+    out.push("    if location.contains(\"#\") {")
+    out.push(
+      "      fail(\"a redirect with a fragment is not supported with %{url_effective}\")",
+    )
+    out.push("    }")
+  }
+  out.push("    if location == \"\" {")
   if !fields.is_empty() {
     let quoted_method = quoted(plan.http_method)
     let final_method = if changes {
@@ -835,7 +856,13 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
   self.check_plan()
   let mut headers = self.checked_headers()
   let mut auth = plan.auth
+  let mut proxy_user = plan.proxy.bind(proxy => proxy.user)
   if secrets is FromEnv {
+    proxy_user = proxy_user.map(value => {
+      self.lift(
+        value, "PROXY_AUTH", "the user name and password of the proxy, user:password,",
+      )
+    })
     headers = headers.map(header => self.lift_header(header))
     auth = match auth {
       Some(Basic(value)) =>
@@ -893,7 +920,35 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
     }
     None => ()
   }
-  let request_lines = self.request_statements(fields, plan.body is Some(_))
+  let proxy = match plan.proxy {
+    Some(proxy) => {
+      let entries = []
+      if proxy_user is Some(user) {
+        self.import_package("moonbitlang/core/encoding/base64")
+        entries.push(
+          "\"Proxy-Authorization\": \"Basic \" + @base64.encode(\{self.bytes_value(user)})",
+        )
+      }
+      // curl sends its User-Agent to the proxy too.
+      for field in fields {
+        if same_name(field.0.name, "User-Agent") {
+          entries.push("\"User-Agent\": \{field.1}")
+        }
+      }
+      let headers = if entries.is_empty() {
+        ""
+      } else {
+        ", headers={ \{entries.join(", ")} }"
+      }
+      Some("@http.Client(\"\{escape_text(proxy.to_string())}\"\{headers})")
+    }
+    None => None
+  }
+  let request_lines = self.request_statements(
+    fields,
+    plan.body is Some(_),
+    proxy~,
+  )
   // Now all environment variables are known.
   let lines : Array[String] = []
   if !self.environment.is_empty() {

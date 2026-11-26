@@ -107,6 +107,15 @@ pub(all) enum Piece {
 }
 
 #derive(Eq, @debug.Debug)
+pub struct Proxy {
+  scheme : String
+  host : String
+  port : Int32
+  user : Value?
+}
+pub fn Proxy::to_string(Self) -> String
+
+#derive(Eq, @debug.Debug)
 pub struct RequestPlan {
   http_method : String
   explicit_method : Bool
@@ -127,6 +136,7 @@ pub struct RequestPlan {
   write_out : String?
   max_time_ms : Int32?
   retry : Retry?
+  proxy : Proxy?
 }
 pub fn RequestPlan::emit(Self, target? : Target, secrets? : Secrets) -> Emitted raise EmitError
 pub fn RequestPlan::from_json(@json.Json) -> Self raise PlanError

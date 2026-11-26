@@ -195,6 +195,7 @@ dependency and works on every backend; the programs run on native and wasm.
 | Forms | `-F` with text, files (`@`, `<`), `;type=` and `;filename=`; `--form-string` |
 | Authentication | Basic (`-u`), bearer tokens (`--oauth2-bearer`) |
 | How it is sent | `-L`, `--max-redirs`, `-k`, `-f`, `--fail-with-body`, `-m`, `--compressed` |
+| Proxies | `-x` with an http or https proxy, through a tunnel that `CONNECT` makes: for https URLs, and with `-p` for all; `-U`, or the user and password in the proxy URL, which win over `-U` as in curl; `--proxy-basic` |
 | Retries | `--retry`, `--retry-delay`, `--retry-max-time`, `--retry-all-errors`; `--retry-connrefused` only together with `--retry-all-errors` |
 | Where the response goes | `-o`, `-O`, `--remote-name-all`, `--output-dir`, `--create-dirs`; the first of `-o` and `-O` counts, and a later one is reported |
 | What is written after the body | `-w` with `%{http_code}`, `%{response_code}`, `%{content_type}`, `%{size_download}`, `%{num_redirects}`, `%{url_effective}`, `%{method}`, `%{stderr}` and `%{stdout}`, `%%` and the escapes of curl |
@@ -213,6 +214,12 @@ text after the closing quote, a quote that is not closed, and CR, vertical
 tabs or form feeds inside a line. So are lines that end with CR LF and have
 only blanks, or nothing after the option, because curl 8.19 takes the CR into
 the option where later versions do not.
+
+Of proxies, SOCKS proxies, proxies at IPv6 addresses, `--noproxy` and the
+other proxy options are rejected, and so is a request that curl would send to
+the proxy as it is: an http URL without `-p`, or `-L` without `-p`, which can
+lead to one. So is an empty user name and password, which some versions of curl
+send and others do not.
 
 Of variables, those that curl would replace with nothing are rejected, and so
 are variables from files, defaults for environment variables, ranges of bytes,
@@ -270,6 +277,15 @@ Programs differ from curl in this:
 - There is no `Expect: 100-continue`, which curl adds to large bodies.
 - Certificates are checked by the TLS library of the system, which may trust
   others than curl does.
+- curl takes a proxy from environment variables such as `https_proxy` when the
+  command has no `-x`; programs do not.
+- The `CONNECT` request to a proxy has the Host and User-Agent of
+  moonbitlang/async, unless the command sets a User-Agent, and no
+  `Proxy-Connection`. On the JavaScript backend moonbitlang/async ignores the
+  proxy, so programs with one are for native and wasm.
+- `%{url_effective}` is rejected for a URL with a fragment, and a program
+  that writes it stops at a redirect with a fragment, because curl writes the
+  fragment.
 
 ## How it is checked
 
@@ -284,7 +300,8 @@ Programs differ from curl in this:
   again, and the request must be the same.
 - `tools/compare_programs.py` builds the programs for a list of commands, runs
   them and curl against local servers, and compares the requests, the output and
-  whether the run succeeds. CI does this on native and wasm, on Linux. With TLS
+  whether the run succeeds, also through a local proxy that tunnels. CI does
+  this on native and wasm, on Linux. With TLS
   only `-k` and the rejection of a self-signed certificate are compared, with
   HTTP/1.1 only.
 - `tools/compare_cmd.py` gives texts to the prompt of cmd.exe with the curl.exe

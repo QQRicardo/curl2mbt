@@ -49,6 +49,15 @@ test "texts of -w that are rejected" {
   assert_eq(write_out_errors(["-w", "%header{x-a}"]), ["unsupported-value"])
   assert_eq(write_out_errors(["-w", "%output{f}"]), ["unsupported-value"])
   assert_eq(write_out_errors(["-w", "@f"]), ["file-not-supported"])
+  // curl writes the fragment, which the plan leaves out.
+  let fragment = (text : String) => {
+    let found = @curl2mbt.parse_argv(["curl", "-w", text, "http://h/a#f"]).diagnostics catch {
+        CurlError(found) => found
+      }
+    found.map(item => item.code)
+  }
+  assert_eq(fragment("%{url_effective}"), ["unsupported-value"])
+  assert_eq(fragment("%{http_code}"), [])
 }
 
 ///|

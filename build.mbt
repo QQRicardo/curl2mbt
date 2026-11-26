@@ -237,9 +237,21 @@ fn Settings::build(self : Settings) -> RequestPlan? {
   }
   let parsed = self.parse_the_url()
   guard parsed is Some(parsed) else { return None }
+  if self.write_out is Some(text) &&
+    writes_variable(text, "url_effective") &&
+    self.urls[0].0.to_text() is Some(url) &&
+    url.contains("#") {
+    self.report.error(
+      "unsupported-value",
+      "%{url_effective} with a URL that has a fragment is not supported, because curl writes the fragment, which the plan leaves out",
+      help="remove the fragment",
+      location=self.urls[0].1,
+    )
+  }
   let auth = self.build_auth(parsed)
   let url = self.complete_url(parsed.url)
   let output_file = self.output_file(url)
+  let proxy = self.build_proxy(url)
   Some({
     http_method,
     explicit_method: self.request is Some(_),
@@ -266,6 +278,7 @@ fn Settings::build(self : Settings) -> RequestPlan? {
     max_time_ms: self.max_time_ms,
     retry: self.build_retry(),
     write_out: self.write_out,
+    proxy,
   })
 }
 

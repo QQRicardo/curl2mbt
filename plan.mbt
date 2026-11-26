@@ -79,6 +79,28 @@ pub struct RequestPlan {
   max_time_ms : Int32?
   /// `--retry` and the options that go with it.
   retry : Retry?
+  /// `-x`: the proxy that the request goes through, in a tunnel that
+  /// `CONNECT` makes, as with `-p`.
+  proxy : Proxy?
+}
+
+///|
+/// An HTTP proxy.
+#derive(Eq, Debug)
+pub struct Proxy {
+  /// `http` or `https`: how the program talks to the proxy.
+  scheme : String
+  /// A name or an IPv4 address.
+  host : String
+  port : Int32
+  /// `user:password`, sent to the proxy as `Proxy-Authorization: Basic ...`.
+  user : Value?
+}
+
+///|
+/// The proxy as a URL, as `-x` takes it.
+pub fn Proxy::to_string(self : Proxy) -> String {
+  "\{self.scheme}://\{self.host}:\{self.port}"
 }
 
 ///|

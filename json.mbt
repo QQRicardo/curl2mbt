@@ -113,6 +113,13 @@ pub fn RequestPlan::to_json(self : RequestPlan) -> Json {
   if self.write_out is Some(text) {
     out["write_out"] = Json::string(text)
   }
+  if self.proxy is Some(proxy) {
+    let fields : Map[String, Json] = { "url": Json::string(proxy.to_string()) }
+    if proxy.user is Some(user) {
+      fields["user"] = user.to_json_value()
+    }
+    out["proxy"] = Json::object(fields)
+  }
   if self.retry is Some(retry) {
     let fields : Map[String, Json] = {
       "count": Json::number(retry.count.to_double()),
@@ -338,7 +345,7 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
     "version", "method", "explicit_method", "url", "headers", "omit_user_agent",
     "auth", "body", "compressed", "follow_redirects", "max_redirects", "cookie_engine",
     "insecure", "fail_on_error", "fail_with_body", "output_file", "create_dirs",
-    "max_time_ms", "retry", "write_out",
+    "max_time_ms", "retry", "write_out", "proxy",
   ])
   if plan.integer("version", min=1) != Some(plan_version) {
     bad_plan("version", "must be \{plan_version}")
@@ -429,6 +436,40 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
       Some(text)
     }
   }
+  let proxy = match plan.fields.get("proxy") {
+    None => None
+    Some(json) => {
+      let proxy = Fields::new("proxy", json, ["url", "user"])
+      let text = proxy.string("url")
+      let parsed = parse_url(text, globbing=false, path_as_is=true) catch {
+        UrlError({ message, .. }) => bad_plan("proxy.url", message)
+      }
+      let { scheme, host, .. } = parsed.url
+      let port = proxy_port(text, parsed.url)
+      let proxy = Proxy::{
+        scheme,
+        host,
+        port,
+        user: if proxy.fields.contains("user") {
+          let user = proxy.value("user")
+          if user.split_once(b':') is None || user.has_file() {
+            bad_plan("proxy.user", "must have a colon and no file")
+          }
+          Some(user)
+        } else {
+          None
+        },
+      }
+      if proxy.to_string() != text ||
+        parsed.user_info is Some(_) ||
+        host.has_prefix("[") {
+        bad_plan(
+          "proxy.url", "must be scheme://host:port, without a user or an IPv6 address",
+        )
+      }
+      Some(proxy)
+    }
+  }
   let retry = match plan.fields.get("retry") {
     None => None
     Some(json) => {
@@ -500,5 +541,6 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
     max_time_ms: plan.integer("max_time_ms", min=1),
     retry,
     write_out,
+    proxy,
   }
 }
