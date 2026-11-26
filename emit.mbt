@@ -720,7 +720,8 @@ fn Emitter::request_statements(
   out.push("  let mut origin = first")
   out.push("  let mut path = \{quoted(plan.url.target())}")
   if has_body {
-    out.push("  let mut with_body = true")
+    let keyword = if self.drops_body().is_empty() { "let" } else { "let mut" }
+    out.push("  \{keyword} with_body = true")
   }
   out.push("  for redirects = 0; ; redirects = redirects + 1 {")
   let through = if proxy is Some(proxy) {
@@ -731,7 +732,9 @@ fn Emitter::request_statements(
   }
   out.push("    let client = @http.Client(origin\{trust}\{through})")
   out.push("    defer client.close()")
+  // --location-trusted sends them to every host.
   fn is_credential(header : Header) -> Bool {
+    !plan.location_trusted &&
     ["authorization", "cookie"].contains(header.name.to_lower())
   }
 
@@ -830,13 +833,9 @@ fn Emitter::request_statements(
   out.push("    if redirects == \{plan.max_redirects} {")
   out.push("      fail(\"more than \{plan.max_redirects} redirects\")")
   out.push("    }")
-  if has_body {
-    // curl sends an upload again after a 301 or 302.
-    let codes = if plan.body is Some(Upload(_)) {
-      "303"
-    } else {
-      "301 | 302 | 303"
-    }
+  let drops = self.drops_body()
+  if !drops.is_empty() {
+    let codes = drops.map(code => code.to_string()).join(" | ")
     out.push("    if response.code is (\{codes}) {")
     out.push("      with_body = false")
     out.push("    }")
@@ -1321,4 +1320,17 @@ fn Emitter::write_out_statements(
     .map(entry => "\{indent}let \{entry.0} = \{entry.1}")
     .collect()
   statements + out
+}
+
+///|
+/// The codes of redirects after which curl sends no body. It sends an
+/// upload again after a 301 or 302, since it is not a POST, and a POST
+/// after the codes of `--post301`, `--post302` and `--post303`.
+fn Emitter::drops_body(self : Emitter) -> Array[Int32] {
+  match self.plan.body {
+    None => []
+    Some(Upload(_)) => [303]
+    Some(_) =>
+      [301, 302, 303].filter(code => !self.plan.keep_post.contains(code))
+  }
 }

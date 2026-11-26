@@ -126,6 +126,8 @@ pub struct RequestPlan {
   body : Body?
   compressed : Bool
   follow_redirects : Bool
+  location_trusted : Bool
+  keep_post : Array[Int32]
   max_redirects : Int32
   cookie_engine : Bool
   insecure : Bool

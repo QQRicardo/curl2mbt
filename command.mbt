@@ -89,6 +89,9 @@ priv struct Settings {
   mut json : Bool
   mut compressed : Bool
   mut follow : Bool
+  mut location_trusted : Bool
+  /// The codes of `--post301`, `--post302` and `--post303`.
+  keep_post : Map[Int32, Location]
   mut max_redirects : Int32
   mut insecure : Bool
   mut proxy : (String, Location)?
@@ -395,6 +398,8 @@ fn Settings::new(report : Report, windows~ : Bool) -> Settings {
     json: false,
     compressed: false,
     follow: false,
+    location_trusted: false,
+    keep_post: Map([]),
     max_redirects: default_max_redirects,
     insecure: false,
     proxy: None,
@@ -548,6 +553,25 @@ fn Settings::apply(self : Settings, option : Occurrence) -> Unit {
     "url-query" => self.apply_url_query(option)
     "compressed" => self.compressed = option.on
     "location" => self.follow = option.on
+    // It turns -L on and off too.
+    "location-trusted" => {
+      self.follow = option.on
+      self.location_trusted = option.on
+    }
+    "post301" | "post302" | "post303" => {
+      let code = if option.name == "post301" {
+        301
+      } else if option.name == "post302" {
+        302
+      } else {
+        303
+      }
+      if option.on {
+        self.keep_post[code] = option.location
+      } else {
+        self.keep_post.remove(code)
+      }
+    }
     "max-redirs" => self.apply_max_redirs(option)
     "insecure" => self.insecure = option.on
     "proxy" =>

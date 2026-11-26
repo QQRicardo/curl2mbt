@@ -99,6 +99,12 @@ pub fn RequestPlan::to_json(self : RequestPlan) -> Json {
   }
   flag("compressed", self.compressed)
   flag("follow_redirects", self.follow_redirects)
+  flag("location_trusted", self.location_trusted)
+  if !self.keep_post.is_empty() {
+    out["keep_post"] = Json::array(
+      self.keep_post.map(code => Json::number(code.to_double())),
+    )
+  }
   if self.max_redirects != default_max_redirects {
     out["max_redirects"] = Json::number(self.max_redirects.to_double())
   }
@@ -343,9 +349,9 @@ fn header_from_json(path : String, json : Json) -> Header raise PlanError {
 pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
   let plan = Fields::new("", json, [
     "version", "method", "explicit_method", "url", "headers", "omit_user_agent",
-    "auth", "body", "compressed", "follow_redirects", "max_redirects", "cookie_engine",
-    "insecure", "fail_on_error", "fail_with_body", "output_file", "create_dirs",
-    "max_time_ms", "retry", "write_out", "proxy",
+    "auth", "body", "compressed", "follow_redirects", "location_trusted", "keep_post",
+    "max_redirects", "cookie_engine", "insecure", "fail_on_error", "fail_with_body",
+    "output_file", "create_dirs", "max_time_ms", "retry", "write_out", "proxy",
   ])
   if plan.integer("version", min=1) != Some(plan_version) {
     bad_plan("version", "must be \{plan_version}")
@@ -470,6 +476,32 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
       Some(proxy)
     }
   }
+  let follow_redirects = plan.flag("follow_redirects")
+  let location_trusted = plan.flag("location_trusted")
+  if location_trusted && !follow_redirects {
+    bad_plan("location_trusted", "needs follow_redirects")
+  }
+  let keep_post : Array[Int32] = match plan.fields.get("keep_post") {
+    None => []
+    Some(Array(items)) => {
+      let codes = items.map(item => {
+        match item {
+          Number(n, ..) if n == 301.0 || n == 302.0 || n == 303.0 => n.to_int()
+          _ => bad_plan("keep_post", "must hold 301, 302 and 303")
+        }
+      })
+      for i in 1..<codes.length() {
+        if codes[i - 1] >= codes[i] {
+          bad_plan("keep_post", "must be in ascending order, each once")
+        }
+      }
+      if codes.is_empty() || !follow_redirects {
+        bad_plan("keep_post", "must not be empty, and needs follow_redirects")
+      }
+      codes
+    }
+    Some(_) => bad_plan("keep_post", "must be an array")
+  }
   let retry = match plan.fields.get("retry") {
     None => None
     Some(json) => {
@@ -528,7 +560,9 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
     auth,
     body,
     compressed: plan.flag("compressed"),
-    follow_redirects: plan.flag("follow_redirects"),
+    follow_redirects,
+    location_trusted,
+    keep_post,
     max_redirects: plan
     .integer("max_redirects", min=0)
     .unwrap_or(default_max_redirects),

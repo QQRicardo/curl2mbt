@@ -217,8 +217,13 @@ fn RequestPlan::curl_arguments(
   if self.compressed {
     flag("--compressed")
   }
-  if self.follow_redirects {
+  if self.location_trusted {
+    flag("--location-trusted")
+  } else if self.follow_redirects {
     flag("-L")
+  }
+  for code in self.keep_post {
+    flag("--post\{code}")
   }
   if self.max_redirects != default_max_redirects {
     option("--max-redirs", Argument::text(self.max_redirects.to_string()))

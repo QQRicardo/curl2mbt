@@ -57,6 +57,12 @@ pub struct RequestPlan {
   compressed : Bool
   /// `-L`.
   follow_redirects : Bool
+  /// `--location-trusted`: send credentials to every host that a redirect
+  /// leads to, not only to the first one.
+  location_trusted : Bool
+  /// `--post301`, `--post302` and `--post303`: the codes of redirects
+  /// after which a POST stays a POST, with its body, in ascending order.
+  keep_post : Array[Int32]
   /// How many redirects to follow at most.
   max_redirects : Int32
   /// Whether `-b` makes curl send back the cookies it receives on redirects.

@@ -268,6 +268,8 @@ fn Settings::build(self : Settings) -> RequestPlan? {
     body,
     compressed: self.compressed,
     follow_redirects: self.follow,
+    location_trusted: self.follow && self.location_trusted,
+    keep_post: self.build_keep_post(),
     max_redirects: self.max_redirects,
     cookie_engine: self.cookie_engine,
     insecure: self.insecure,
@@ -408,4 +410,24 @@ pub fn parse_argv(arguments : ArrayView[String]) -> Parsed raise CurlError {
     location: Argument(i),
   })
   parse_words(words, report, windows=false)
+}
+
+///|
+/// The codes after which a POST stays a POST, from `--post301`,
+/// `--post302` and `--post303`.
+fn Settings::build_keep_post(self : Settings) -> Array[Int32] {
+  let codes = self.keep_post.keys().collect()
+  codes.sort()
+  if !self.follow {
+    for code in codes {
+      self.report.add(
+        Note,
+        "no-effect",
+        "--post\{code} only matters with -L",
+        location?=self.keep_post.get(code),
+      )
+    }
+    return []
+  }
+  codes
 }

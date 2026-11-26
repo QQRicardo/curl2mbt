@@ -194,7 +194,7 @@ dependency and works on every backend; the programs run on native and wasm.
 | Uploads | `-T` with a file, which becomes the last part of a URL that ends with `/`; with `--path-as-is`, `-T` and `--url-query` are rejected, because curl then normalizes the path anyway |
 | Forms | `-F` with text, files (`@`, `<`), `;type=` and `;filename=`; `--form-string` |
 | Authentication | Basic (`-u`), bearer tokens (`--oauth2-bearer`) |
-| How it is sent | `-L`, `--max-redirs`, `-k`, `-f`, `--fail-with-body`, `-m`, `--compressed` |
+| How it is sent | `-L`, `--location-trusted`, `--post301`, `--post302`, `--post303`, `--max-redirs`, `-k`, `-f`, `--fail-with-body`, `-m`, `--compressed` |
 | Proxies | `-x` with an http or https proxy, through a tunnel that `CONNECT` makes: for https URLs, and with `-p` for all; `-U`, or the user and password in the proxy URL, which win over `-U` as in curl; `--proxy-basic` |
 | Retries | `--retry`, `--retry-delay`, `--retry-max-time`, `--retry-all-errors`; `--retry-connrefused` only together with `--retry-all-errors` |
 | Where the response goes | `-o`, `-O`, `--remote-name-all`, `--output-dir`, `--create-dirs`; the first of `-o` and `-O` counts, and a later one is reported |
@@ -260,7 +260,10 @@ its parts.
 
 With `-L` it follows redirects as curl does: what becomes of the method and the
 body after each status, which header fields are kept, and no credentials for
-another host. A redirect it cannot resolve with certainty ends the program with
+another host, unless `--location-trusted` sends them to every host. After a 301,
+302 or 303 a POST becomes a GET without its body, unless `--post301`,
+`--post302` or `--post303` keeps it, as in curl; an upload is sent again after
+a 301 or 302. A redirect it cannot resolve with certainty ends the program with
 an error.
 
 Plans that moonbitlang/async 0.22 cannot send as they are get no program:
