@@ -105,6 +105,11 @@ pub fn RequestPlan::to_json(self : RequestPlan) -> Json {
   flag("cookie_engine", self.cookie_engine)
   flag("insecure", self.insecure)
   flag("fail_on_error", self.fail_on_error)
+  flag("fail_with_body", self.fail_with_body)
+  if self.output_file is Some(path) {
+    out["output_file"] = Json::string(path)
+  }
+  flag("create_dirs", self.create_dirs)
   if self.max_time_ms is Some(ms) {
     out["max_time_ms"] = Json::number(ms.to_double())
   }
@@ -314,7 +319,8 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
   let plan = Fields::new("", json, [
     "version", "method", "explicit_method", "url", "headers", "omit_user_agent",
     "auth", "body", "compressed", "follow_redirects", "max_redirects", "cookie_engine",
-    "insecure", "fail_on_error", "max_time_ms",
+    "insecure", "fail_on_error", "fail_with_body", "output_file", "create_dirs",
+    "max_time_ms",
   ])
   if plan.integer("version", min=1) != Some(plan_version) {
     bad_plan("version", "must be \{plan_version}")
@@ -375,6 +381,23 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
       }
     }
   }
+  let fail_with_body = plan.flag("fail_with_body")
+  if fail_with_body && !plan.flag("fail_on_error") {
+    bad_plan("fail_with_body", "needs fail_on_error")
+  }
+  let output_file = if plan.fields.contains("output_file") {
+    let path = well_formed("output_file", plan.string("output_file"))
+    if path is ("" | "-") || path.contains("\u0000") {
+      bad_plan("output_file", "is not the name of a file")
+    }
+    Some(path)
+  } else {
+    None
+  }
+  let create_dirs = plan.flag("create_dirs")
+  if create_dirs && output_file is None {
+    bad_plan("create_dirs", "needs output_file")
+  }
   let body = match plan.fields.get("body") {
     None => None
     Some(json) => {
@@ -423,6 +446,9 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
     cookie_engine: plan.flag("cookie_engine"),
     insecure: plan.flag("insecure"),
     fail_on_error: plan.flag("fail_on_error"),
+    fail_with_body,
+    output_file,
+    create_dirs,
     max_time_ms: plan.integer("max_time_ms", min=1),
   }
 }

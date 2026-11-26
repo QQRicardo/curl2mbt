@@ -916,20 +916,37 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
     }
     None => lines.push("  let (response, body) = send_request()")
   }
-  if plan.fail_on_error {
-    lines.append([
-      "  if response.code >= 400 {", "    fail(\"HTTP status \\{response.code}\")",
-      "  }",
-    ])
-  } else {
+  let check = [
+    "  if response.code >= 400 {", "    fail(\"HTTP status \\{response.code}\")",
+    "  }",
+  ]
+  if plan.fail_on_error && !plan.fail_with_body {
+    lines.append(check)
+  } else if !plan.fail_on_error {
     lines.push("  ignore(response)")
   }
-  lines.push("  @stdio.stdout.write(body)")
+  match plan.output_file {
+    None => {
+      self.import_package("moonbitlang/async/stdio")
+      lines.push("  @stdio.stdout.write(body)")
+    }
+    Some(path) => {
+      self.import_package("moonbitlang/async/fs")
+      if plan.create_dirs && parent_directory(path) is Some(directory) {
+        lines.push(
+          "  @fs.mkdir(\"\{escape_text(directory)}\", recursive=true, allow_exist=true)",
+        )
+      }
+      lines.push(
+        "  @fs.write_file(\"\{escape_text(path)}\", body, create_mode=CreateOrTruncate)",
+      )
+    }
+  }
+  if plan.fail_with_body {
+    lines.append(check)
+  }
   lines.push("}")
-  for
-    name in [
-      "moonbitlang/async/http", "moonbitlang/async/io", "moonbitlang/async/stdio",
-    ] {
+  for name in ["moonbitlang/async/http", "moonbitlang/async/io"] {
     self.import_package(name)
   }
   let imports = self.imports.keys().collect()

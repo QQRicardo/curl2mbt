@@ -6,7 +6,8 @@ test "plans survive JSON" {
       "curl -X PURGE -A '' h", "curl -d '' h", "curl --json '{}' h", "curl --oauth2-bearer \"x$T\" h",
       "curl -u \"$U:$P\" --data-raw \"$A b $C\" -H \"X: $D\" h", "curl -d $'\\xff\\xfe' -b 'a=b' h",
       "curl -H 'Host: x' -H 'Accept:' -H 'E;' -H 'D: 1' -H 'd: 2' h", "curl -d 'é 😀' h",
-      "curl -g 'h/{a}?[b]'", "curl --path-as-is h/../a",
+      "curl -g 'h/{a}?[b]'", "curl --path-as-is h/../a", "curl -T f h/", "curl --create-dirs -o d/f h",
+      "curl --fail-with-body -O h/x/y",
     ] {
     let plan = @curl2mbt.parse(text).plan
     let json = plan.to_json().stringify()

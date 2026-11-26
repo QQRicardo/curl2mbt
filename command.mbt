@@ -91,6 +91,11 @@ priv struct Settings {
   mut insecure : Bool
   mut fail : Bool
   mut max_time_ms : Int32?
+  mut output : (OutputName, Location)?
+  mut remote_name_all : Bool
+  mut output_dir : String?
+  mut create_dirs : Bool
+  mut fail_with_body : Bool
   mut globoff : Bool
   mut path_as_is : Bool
 }
@@ -112,16 +117,8 @@ fn output_only(name : String) -> String? {
     | "trace-config"
     | "trace-ids"
     | "trace-time" => Some("what curl reports")
-    "output"
-    | "output-dir"
-    | "remote-name"
-    | "remote-name-all"
-    | "remote-header-name"
-    | "remote-time"
-    | "remove-on-error"
-    | "create-dirs"
+    "remote-time"
     | "create-file-mode"
-    | "clobber"
     | "xattr"
     | "out-null"
     | "include"
@@ -375,6 +372,11 @@ fn Settings::new(report : Report, windows~ : Bool) -> Settings {
     insecure: false,
     fail: false,
     max_time_ms: None,
+    output: None,
+    remote_name_all: false,
+    output_dir: None,
+    create_dirs: false,
+    fail_with_body: false,
     globoff: false,
     path_as_is: false,
   }
@@ -505,6 +507,20 @@ fn Settings::apply(self : Settings, option : Occurrence) -> Unit {
     "max-redirs" => self.apply_max_redirs(option)
     "insecure" => self.insecure = option.on
     "fail" => self.fail = option.on
+    "fail-with-body" => self.fail_with_body = option.on
+    "output" => self.apply_output(option)
+    "remote-name" if option.on => self.apply_output(option)
+    // --no-remote-name turns off --remote-name-all.
+    "remote-name" | "remote-name-all" => self.remote_name_all = option.on
+    "output-dir" =>
+      if self.text(option) is Some(text) {
+        if text == "" {
+          self.fail_at(option, "unsupported-value", "the directory is empty")
+        } else {
+          self.output_dir = Some(text)
+        }
+      }
+    "create-dirs" => self.create_dirs = option.on
     "max-time" => self.apply_max_time(option)
     "globoff" => self.globoff = option.on
     "path-as-is" => self.path_as_is = option.on

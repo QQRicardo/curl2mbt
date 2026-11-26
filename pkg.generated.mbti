@@ -114,6 +114,9 @@ pub struct RequestPlan {
   cookie_engine : Bool
   insecure : Bool
   fail_on_error : Bool
+  fail_with_body : Bool
+  output_file : String?
+  create_dirs : Bool
   max_time_ms : Int32?
 }
 pub fn RequestPlan::emit(Self, target? : Target, secrets? : Secrets) -> Emitted raise EmitError

@@ -238,10 +238,12 @@ fn Settings::build(self : Settings) -> RequestPlan? {
   let parsed = self.parse_the_url()
   guard parsed is Some(parsed) else { return None }
   let auth = self.build_auth(parsed)
+  let url = self.complete_url(parsed.url)
+  let output_file = self.output_file(url)
   Some({
     http_method,
     explicit_method: self.request is Some(_),
-    url: self.complete_url(parsed.url),
+    url,
     headers: self.headers(body, range),
     omit_user_agent: if self.has_line("User-Agent") {
       !self.header_lines
@@ -257,7 +259,10 @@ fn Settings::build(self : Settings) -> RequestPlan? {
     max_redirects: self.max_redirects,
     cookie_engine: self.cookie_engine,
     insecure: self.insecure,
-    fail_on_error: self.fail,
+    fail_on_error: self.fail || self.fail_with_body,
+    fail_with_body: self.fail_with_body,
+    output_file,
+    create_dirs: self.create_dirs && output_file is Some(_),
     max_time_ms: self.max_time_ms,
   })
 }

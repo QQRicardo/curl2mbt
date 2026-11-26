@@ -65,6 +65,13 @@ pub struct RequestPlan {
   insecure : Bool
   /// `-f`: treat a status of 400 or more as a failure.
   fail_on_error : Bool
+  /// `--fail-with-body`: like `fail_on_error`, after the body is written.
+  fail_with_body : Bool
+  /// `-o`, `-O` and `--output-dir`: the file that gets the body of the
+  /// response. `None` is the standard output.
+  output_file : String?
+  /// `--create-dirs`: create the directories of `output_file`.
+  create_dirs : Bool
   /// `-m`: the time the whole request may take.
   max_time_ms : Int32?
 }

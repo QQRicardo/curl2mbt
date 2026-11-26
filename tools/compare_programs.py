@@ -144,6 +144,30 @@ CASES = [
     ["-L", "-F", "a=@f", "U/r/302?to=/t"],
     ["-L", "-d", "@f", "U/r/308?to=/t"],
     ["-L", "-d", "@f", "U/r/303?to=/t"],
+    # Output
+    ["-o", "out", "U"],
+    ["-o", "old", "U/empty"],
+    ["-o", "-", "U"],
+    ["-o", "sub/out", "U"],
+    ["--create-dirs", "-o", "sub/deeper/out", "U"],
+    ["-o", "exists", "U"],
+    ["-O", "U/x/a%20b.txt?q=1"],
+    ["-O", "U/x/"],
+    ["-O", "U"],
+    ["--output-dir", "exists", "-O", "U/x/f.txt"],
+    ["--output-dir", "nodir", "-o", "out", "U"],
+    ["--output-dir", "nodir", "--create-dirs", "-O", "U/f.txt"],
+    ["-f", "-o", "out", "U/status/404"],
+    ["-f", "-o", "old", "U/status/404"],
+    ["--fail-with-body", "-o", "out", "U/status/404"],
+    ["--fail-with-body", "U/status/404"],
+    ["-f", "--fail-with-body", "U/status/500"],
+    ["-o", "out", "U/status/404"],
+    ["-L", "-o", "out", "U/r/302?to=/t"],
+    ["-O", "-o", "b", "U/x/a"],
+    ["--remote-name-all", "-o", "x", "U/y"],
+    ["--remote-name-all", "--no-remote-name", "U/y"],
+    ["-O", "--no-remote-name", "U/y"],
     "curl U --form-string \"a=$TOKEN\" --form-string 'b=x'\"$A\"",
     "curl U --data-raw \"$A\" ",
     "curl U -d \"x$A\" -d @f",
@@ -166,6 +190,9 @@ CASES = [
     (["-L", "-b", "a=b", "U"], ["unsupported-redirects"]),
     (["http://[::1]/"], ["unsupported-host"]),
     (["-d", "@-", "U"], ["file-not-supported"]),
+    (["-o", "", "U"], ["unsupported-value"]),
+    (["-J", "-O", "U"], ["unsupported-option"]),
+    (["--no-clobber", "-o", "old", "U"], ["unsupported-option"]),
     ("curl U -d $'\\xff\\x00y'", ["shell-syntax"]),
 ]
 
@@ -280,6 +307,34 @@ def normal(requests, plan):
     return out
 
 
+def run_in(files, command, environment):
+    """Runs `command` in a new copy of `files`, with a directory `exists` and
+    a file `old`, and gives what it changed there."""
+    directory = tempfile.mkdtemp()
+    work = os.path.join(directory, "w")
+    shutil.copytree(files, work)
+    os.mkdir(os.path.join(work, "exists"))
+    with open(os.path.join(work, "old"), "wb") as file:
+        file.write(b"old content")
+    before = snapshot(work)
+    result = subprocess.run(command, capture_output=True, env=environment, cwd=work)
+    after = snapshot(work)
+    shutil.rmtree(directory, ignore_errors=True)
+    return result, {k: v for k, v in after.items() if before.get(k) != v}
+
+
+def snapshot(directory):
+    out = {}
+    for root, directories, names in os.walk(directory):
+        for name in directories:
+            out[os.path.relpath(os.path.join(root, name), directory) + "/"] = b""
+        for name in names:
+            path = os.path.join(root, name)
+            with open(path, "rb") as file:
+                out[os.path.relpath(path, directory)] = file.read()
+    return out
+
+
 def cli(arguments):
     result = subprocess.run(CLI + arguments, capture_output=True)
     if result.returncode not in (0, 1):
@@ -368,7 +423,7 @@ def main():
         command = [binary] if TARGET == "native" else [shutil.which("moonrun"), binary]
         environment = dict(os.environ, **SECRETS, LC_ALL="C.UTF-8")
         REQUESTS.clear()
-        ours = subprocess.run(command, capture_output=True, env=environment, cwd=files)
+        ours, our_files = run_in(files, command, environment)
         our_requests = normal(REQUESTS, plan)
         options = " -q -sS"
         if arguments[0] == "--text":
@@ -379,14 +434,15 @@ def main():
         else:
             run = [CURL, "-q", "-sS"] + arguments[1:]
         REQUESTS.clear()
-        theirs = subprocess.run(run, capture_output=True, env=environment, cwd=files)
+        theirs, their_files = run_in(files, run, environment)
         their_requests = normal(REQUESTS, plan)
         # With -I and -f, curl shows other things than the body.
         output = "-I" in case or (theirs.returncode != 0) or ours.stdout == theirs.stdout
-        if our_requests != their_requests or not output or (ours.returncode == 0) != (theirs.returncode == 0):
-            failures.append("%r\nprogram %r %r %d %r\ncurl    %r %r %d %r" % (
-                case, our_requests[:4], ours.stdout, ours.returncode, ours.stderr[-300:],
-                their_requests[:4], theirs.stdout, theirs.returncode, theirs.stderr[-300:]))
+        if (our_requests != their_requests or not output or our_files != their_files
+                or (ours.returncode == 0) != (theirs.returncode == 0)):
+            failures.append("%r\nprogram %r %r %d %r %r\ncurl    %r %r %d %r %r" % (
+                case, our_requests[:4], ours.stdout, ours.returncode, ours.stderr[-300:], our_files,
+                their_requests[:4], theirs.stdout, theirs.returncode, theirs.stderr[-300:], their_files))
         else:
             same += 1
     for failure in failures:

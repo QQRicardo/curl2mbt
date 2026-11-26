@@ -157,8 +157,9 @@ dependency and works on every backend; the programs run on native and wasm.
 | Uploads | `-T` with a file, which becomes the last part of a URL that ends with `/`; with `--path-as-is`, `-T` and `--url-query` are rejected, because curl then normalizes the path anyway |
 | Forms | `-F` with text, files (`@`, `<`), `;type=` and `;filename=`; `--form-string` |
 | Authentication | Basic (`-u`), bearer tokens (`--oauth2-bearer`) |
-| How it is sent | `-L`, `--max-redirs`, `-k`, `-f`, `-m`, `--compressed` |
-| Reported as without effect on the request | options about output, progress and connection reuse |
+| How it is sent | `-L`, `--max-redirs`, `-k`, `-f`, `--fail-with-body`, `-m`, `--compressed` |
+| Where the response goes | `-o`, `-O`, `--remote-name-all`, `--output-dir`, `--create-dirs`; the first of `-o` and `-O` counts, and a later one is reported |
+| Reported as without effect on the request | options about headers in the output, progress and connection reuse |
 
 Everything else is rejected: the other options of curl 8.19.0, the standard
 input, header fields and cookies from files, forms inside forms, several URLs,
@@ -180,7 +181,10 @@ comes with a warning where it can matter.
 
 ## What programs do
 
-A program writes the body of the response to the standard output, as curl does.
+A program writes the body of the response to the standard output, as curl does,
+or to the file that `-o` or `-O` names, which it replaces. With `-f` a status of
+400 or more ends the program before anything is written; with `--fail-with-body`
+after the body is written. `-i` and `-I` do not put the header lines in the file.
 Files that the command names are read when the program runs, relative to where
 it runs, and held in memory. The boundary of a form is one that occurs in none of
 its parts.
