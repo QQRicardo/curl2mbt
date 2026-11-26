@@ -86,6 +86,9 @@ What counts are `-u`, `--oauth2-bearer`, `-b` and header fields such as
 they are; for some query parameters there is a warning. `--inline-secrets`
 writes everything into the program.
 
+`examples/` holds programs that the tool wrote for a few typical commands,
+which CI keeps up to date and builds.
+
 ## The library
 
 ```mbt check
@@ -254,6 +257,8 @@ Programs differ from curl in this:
   of Windows and compares what arrives with the plan, also for what
   `--to-curl cmd` writes. Listed and random cases of ASCII characters; CI runs
   it on Windows.
+- `tools/examples.py --check` fails if a program in `examples/` is not what the
+  tool writes now; CI also builds them on native and wasm.
 
 ## Status
 

@@ -1020,14 +1020,14 @@ fn Emitter::retry_code(
   }
   lines.append([
     "", "///|", "/// The retries that are left, and the pause before the next one.",
-    "struct Retries {", "  mut left : Int",
+    "struct Retries {", "  mut left : Int32",
   ])
   // A pause from --retry-delay stays the same.
   lines.push(
     if retry.delay_ms is None {
-      "  mut pause : Int"
+      "  mut pause : Int32"
     } else {
-      "  pause : Int"
+      "  pause : Int32"
     },
   )
   if start {
@@ -1035,7 +1035,7 @@ fn Emitter::retry_code(
   }
   lines.append([
     "}", "", "///|", "/// The pause before the next retry, or `None` if there is none.",
-    "/// `retry_after` is the pause that the server asks for.", "fn Retries::next(self : Retries, retry_after : Int?) -> Int? {",
+    "/// `retry_after` is the pause that the server asks for.", "fn Retries::next(self : Retries, retry_after : Int32?) -> Int32? {",
     "  if self.left == 0 {", "    return None", "  }", "  let mut pause = self.pause",
     "  if retry_after is Some(ms) && ms > pause {", "    pause = ms", "  }",
   ])
@@ -1058,7 +1058,7 @@ fn Emitter::retry_code(
   }
   lines.append([
     "  Some(pause)", "}", "", "///|", "/// The pause that `Retry-After` asks for, if it is a number of seconds.",
-    "fn retry_after(response : @http.Response) -> Int? raise {", "  guard response.headers.get(\"Retry-After\") is Some(text) else {",
+    "fn retry_after(response : @http.Response) -> Int32? raise {", "  guard response.headers.get(\"Retry-After\") is Some(text) else {",
     "    return None", "  }", "  let mut seconds = 0", "  for char in text {", "    guard char is ('0'..<='9') else {",
     "      fail(\"a Retry-After that is not a number of seconds is not supported: \\{text}\")",
     "    }", "    seconds = seconds * 10 + (char.to_int() - '0'.to_int())", "    if seconds > 999999 {",

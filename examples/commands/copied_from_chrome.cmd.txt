@@ -1,0 +1,4 @@
+curl "https://example.com/api/items?page=2" ^
+  -H "accept: application/json" ^
+  -H "cookie: session=%SESSION%" ^
+  --compressed

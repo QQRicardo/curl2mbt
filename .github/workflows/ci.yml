@@ -132,3 +132,9 @@ jobs:
 
       - name: Compare programs on wasm
         run: python3 tools/compare_programs.py wasm "$CURL2MBT"
+
+      - name: Examples are what curl2mbt writes, and build
+        run: |
+          python3 tools/examples.py --check "$CURL2MBT"
+          moon -C examples build --target native --deny-warn
+          moon -C examples build --target wasm --deny-warn
