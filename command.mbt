@@ -8,6 +8,8 @@ priv struct Occurrence {
   value : Value
   /// `false` for `--no-NAME`.
   on : Bool
+  /// Whether `--expand-NAME` asks to replace `{{name}}` in the value.
+  expand : Bool
   /// Where the option is.
   location : Location
   /// Where its value is; that of the option if it has none.
@@ -104,6 +106,8 @@ priv struct Settings {
   mut fail_with_body : Bool
   mut globoff : Bool
   mut path_as_is : Bool
+  /// What `--variable` has set so far.
+  variables : Map[String, Value]
 }
 
 ///|
@@ -217,16 +221,24 @@ fn split_long(
   }
   guard head.to_text() is Some(written) else { return unknown() }
   let name = written[2:].to_owned()
-  let (info, on) = match long_options.get(name) {
-    Some(info) => (info, true)
+  let (info, on, expand) = match long_options.get(name) {
+    Some(info) => (info, true, false)
     None =>
       match name.strip_prefix("no-") {
         Some(rest) =>
           match long_options.get(rest.to_owned()) {
-            Some(info) if !info.takes_value => (info, false)
+            Some(info) if !info.takes_value => (info, false, false)
             _ => return unknown()
           }
-        None => return unknown()
+        None =>
+          match name.strip_prefix("expand-") {
+            Some(rest) =>
+              match long_options.get(rest.to_owned()) {
+                Some(info) if info.takes_value => (info, true, true)
+                _ => return unknown()
+              }
+            None => return unknown()
+          }
       }
   }
   if !info.takes_value {
@@ -243,6 +255,7 @@ fn split_long(
       written,
       value: Value::literal(""),
       on,
+      expand,
       location,
       value_location: location,
     })
@@ -254,6 +267,7 @@ fn split_long(
       written,
       value,
       on,
+      expand,
       location,
       value_location: location,
     })
@@ -267,6 +281,7 @@ fn split_long(
     written,
     value: word.value,
     on,
+    expand,
     location,
     value_location: word.location,
   })
@@ -308,6 +323,7 @@ fn split_short(
         written,
         value: Value::literal(""),
         on: true,
+        expand: false,
         location,
         value_location: location,
       })
@@ -320,6 +336,7 @@ fn split_short(
         written,
         value: rest,
         on: true,
+        expand: false,
         location,
         value_location: location,
       })
@@ -333,6 +350,7 @@ fn split_short(
       written,
       value: word.value,
       on: true,
+      expand: false,
       location,
       value_location: word.location,
     })
@@ -391,6 +409,7 @@ fn Settings::new(report : Report, windows~ : Bool) -> Settings {
     fail_with_body: false,
     globoff: false,
     path_as_is: false,
+    variables: {},
   }
 }
 
@@ -440,6 +459,12 @@ fn Settings::field_value(self : Settings, option : Occurrence) -> Value? {
 
 ///|
 fn Settings::apply(self : Settings, option : Occurrence) -> Unit {
+  if option.expand {
+    if self.expand(option) is Some(value) {
+      self.apply({ ..option, value, expand: false, })
+    }
+    return
+  }
   if output_only(option.name) is Some(what) {
     self.report.add(
       Note,
@@ -545,6 +570,7 @@ fn Settings::apply(self : Settings, option : Occurrence) -> Unit {
       } else {
         None
       }
+    "variable" => self.apply_variable(option)
     "globoff" => self.globoff = option.on
     "path-as-is" => self.path_as_is = option.on
     "config" =>

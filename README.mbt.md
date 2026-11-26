@@ -197,6 +197,7 @@ dependency and works on every backend; the programs run on native and wasm.
 | How it is sent | `-L`, `--max-redirs`, `-k`, `-f`, `--fail-with-body`, `-m`, `--compressed` |
 | Retries | `--retry`, `--retry-delay`, `--retry-max-time`, `--retry-all-errors`; `--retry-connrefused` only together with `--retry-all-errors` |
 | Where the response goes | `-o`, `-O`, `--remote-name-all`, `--output-dir`, `--create-dirs`; the first of `-o` and `-O` counts, and a later one is reported |
+| Variables | `--variable` with `name=value` or `%NAME`, which stays a reference to the environment variable; `--expand-` before any option that takes a value, with `{{name}}` and the functions `trim`, `json`, `url`, `b64` and `64dec` |
 | Reported as without effect on the request | options about headers in the output, progress and connection reuse |
 
 Everything else is rejected: the other options of curl 8.19.0, `-K` inside a
@@ -209,6 +210,12 @@ In config files, lines that curl reads otherwise than they look are rejected:
 blanks before the option, a value that goes on after a blank without quotes,
 text after the closing quote, a quote that is not closed, and CR, vertical
 tabs or form feeds inside a line.
+
+Of variables, those that curl would replace with nothing are rejected, and so
+are variables from files, defaults for environment variables, ranges of bytes,
+functions on environment variables, and `\{{` and `{{` without `}}`, which
+versions of curl read differently. Braces around what is not a name stay as
+they are, with a warning, as curl leaves them.
 
 Three things differ from a shell on purpose. An unset variable is an empty string
 to a shell; here it stays a reference, and whoever sends the request decides.

@@ -53,6 +53,8 @@ FILES = {
     "j.json": b"{}\n", "d e;f,g.xml": b"<x/>",
 }
 VARIABLES = {"TOKEN": "t0k en", "EMPTY": "", "A_1": "x=y"}
+# What curl runs with: the variables, for --variable %NAME.
+CURL_ENVIRONMENT = dict(os.environ, **VARIABLES)
 RANDOM_ARGV = 1500
 RANDOM_FORM = 1500
 RANDOM_TEXT = 5000
@@ -116,7 +118,8 @@ def value_bytes(value):
         elif "file" in piece:
             out += file_bytes(piece)
         else:
-            out += VARIABLES[piece["env"]].encode()
+            # bash expands a variable that is not set to nothing.
+            out += VARIABLES.get(piece["env"], "").encode()
     return out
 
 
@@ -238,10 +241,19 @@ def to_curl(arguments):
     raise SystemExit("curl2mbt failed: %r\n%s%s" % (arguments, result.stdout.decode(), result.stderr.decode()))
 
 
+def annotate(text):
+    """Shows a failure on the page of a GitHub Actions run, where anyone can
+    read it."""
+    if os.environ.get("GITHUB_ACTIONS"):
+        line = text.replace("%", "%25").replace(chr(13), "%0D").replace(chr(10), "%0A")
+        print("::error title=compare::" + line[:3000])
+
+
 def tally(outcome):
     ROUND_TRIP[outcome] = ROUND_TRIP.get(outcome, 0) + 1
     if outcome not in ("same", "not expressible"):
         print(outcome)
+        annotate(outcome)
 
 
 def round_trip_argv(server, arguments, plan, want):
@@ -254,7 +266,9 @@ def round_trip_argv(server, arguments, plan, want):
     with open(script, "w", encoding="utf-8", newline="") as file:
         file.write("'%s' -q -sS --max-time 5%s" % (CURL, text[len("curl"):]))
     server.requests.clear()
-    result = subprocess.run([BASH, "--norc", "--noprofile", script], capture_output=True, cwd=DIRECTORY)
+    result = subprocess.run(
+        [BASH, "--norc", "--noprofile", script], capture_output=True, cwd=DIRECTORY, env=CURL_ENVIRONMENT
+    )
     if len(server.requests) != 1:
         return tally("round trip %r -> %r: curl made %d requests: %r" % (
             arguments, text, len(server.requests), result.stderr))
@@ -318,7 +332,10 @@ def compare_with_curl(server, cli_arguments, arguments):
         return "rejected " + " ".join(codes)
     server.requests.clear()
     result = subprocess.run(
-        [CURL, "-q", "-sS", "--max-time", "5"] + arguments, capture_output=True, cwd=DIRECTORY
+        [CURL, "-q", "-sS", "--max-time", "5"] + arguments,
+        capture_output=True,
+        cwd=DIRECTORY,
+        env=CURL_ENVIRONMENT,
     )
     if names_missing_file(plan):
         return "same" if result.returncode == 26 else "curl reads this file"
@@ -401,7 +418,9 @@ def main():
         ok = outcome == want if want else outcome == "same" or outcome.startswith("rejected")
         if not ok:
             failures += 1
-            print("%s %r: wanted %s, got\n%s" % (kind, case, want, outcome))
+            message = "%s %r: wanted %s, got\n%s" % (kind, case, want, outcome)
+            print(message)
+            annotate(message)
         return outcome.split(" ")[0]
 
     os.mkdir(os.path.join(DIRECTORY, "sub"))
@@ -428,12 +447,14 @@ def main():
 
     for want, text in CONFIG_CASES:
         count("listed config files", check("config", text, compare_config(server, text), want))
+    # Their own source, so that adding them changes no other random case.
+    config_source = random.Random(source.random())
     for _ in range(RANDOM_CONFIG):
         lines = ["url = http://HOST/"]
-        for _ in range(source.randint(1, 3)):
-            option = source.choice(CONFIG_OPTIONS) + source.choice(CONFIG_SEPARATORS)
-            lines.append(option + "".join(source.choice(CONFIG_PARTS) for _ in range(source.randint(0, 6))))
-        text = "\n".join(lines) + source.choice(["", "\n", "\r\n"])
+        for _ in range(config_source.randint(1, 3)):
+            option = config_source.choice(CONFIG_OPTIONS) + config_source.choice(CONFIG_SEPARATORS)
+            lines.append(option + "".join(config_source.choice(CONFIG_PARTS) for _ in range(config_source.randint(0, 6))))
+        text = "\n".join(lines) + config_source.choice(["", "\n", "\r\n"])
         count("random config files", check("config", text, compare_config(server, text)))
 
     with tempfile.TemporaryDirectory() as directory:
@@ -461,4 +482,9 @@ def main():
         raise SystemExit("%d failures" % failures)
 
 
-main()
+try:
+    main()
+except BaseException:
+    import traceback
+    annotate(traceback.format_exc()[-2500:])
+    raise

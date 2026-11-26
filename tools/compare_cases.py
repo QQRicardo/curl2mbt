@@ -344,7 +344,34 @@ ARGV_CASES = [("same", case) for case in [
     (rejected("unsupported-option"), ["-T", "f", "-K", "c", U]),
     (rejected("conflicting-options"), ["-T", "f", "--path-as-is", U + "/a/../"]),
     (rejected("conflicting-options"), ["--url-query", "a=1", "--path-as-is", U + "/a/../b"]),
-]
+    # Variables
+    (rejected("undefined-variable"), ["--expand-data", "{{nope}}", U]),
+    (rejected("unsupported-value"), ["--variable", "%TOKEN=d", U]),
+    (rejected("unsupported-value"), ["--variable", "a=1", "--expand-data", "\\{{a}}", U]),
+    (rejected("unsupported-value"), ["--variable", "a=1", "--expand-data", "{{a", U]),
+    (rejected("unsupported-value"), ["--variable", "a=1", "--expand-data", "{{a:nope}}", U]),
+    (rejected("unsupported-value"), ["--variable", "a=AA==", "--expand-data", "{{a:64dec}}", U]),
+    (rejected("variable-not-supported"), ["--variable", "%TOKEN", "--expand-data", "{{TOKEN:url}}", U]),
+    (rejected("file-not-supported"), ["--variable", "a@f", U]),
+    (rejected("variable-not-supported"), ["--variable", "%A_1", "--expand-url", U + "/{{A_1}}"]),
+] + [("same", case) for case in [
+    ["--variable", "a=1", "--expand-data", "x={{a}}&y={{a}}", U],
+    ["--variable", "%TOKEN", "--expand-header", "Authorization: Bearer {{TOKEN}}", U],
+    ["--variable", "%A_1", "--variable", "p=x", "--expand-data", "a{{A_1}}", "--expand-url", U + "/{{p}}"],
+    ["--variable", "%EMPTY", "--expand-data", "[{{EMPTY}}]", U],
+    ["--variable", "a=1", "--variable", "a=2", "--expand-data", "{{a}}", "--variable", "a=3", U],
+    ["--variable", "a=1", "-d", "{{a}}", U],
+    ["--variable", "a=1", "--expand-data", "{{a b}}{{}}{{{a}}}{{a}}}}{{-}}", U],
+    ["--variable", "v=  a \"b\"\\\n\u0001/\u00e9 ", "--expand-data", "{{v:trim:json}}", U],
+    ["--variable", "v=a b&c/d~e-f.g_h\u00e9", "--expand-data", "{{v:url}}", U],
+    ["--variable", "v=hello", "--expand-data", "{{v:b64}}|{{v:b64:64dec}}", U],
+    ["--variable", "v=aGVsbG8", "--variable", "w=", "--expand-data", "{{v:64dec}}[{{w:64dec}}]", U],
+    ["--variable", "v=aGVsbA==", "--expand-data", "{{v:64dec}}{{v:url:b64:64dec}}", U],
+    ["--variable", "v=YQ==YQ==", "--expand-data", "{{v:64dec}}", U],
+    ["--variable", "a=1", "--expand-variable", "b=[{{a}}]", "--expand-data", "{{b}}", U],
+    ["--variable", "a=PUT", "--expand-request", "{{a}}", "--expand-user-agent", "u{{a}}", U],
+    ["--variable", "f=t.txt", "--expand-data", "@{{f}}", U],
+]]
 
 # Put together at random.
 ARGV_PARTS = [
@@ -360,6 +387,9 @@ ARGV_PARTS = [
     ["-d", "@f"], ["--data-binary", "@empty"], ["--data-urlencode", "n@f"],
     ["-F", "a=1"], ["-F", "b=@t.txt"], ["--form-string", "c=@f"],
     ["-T", "t.txt"], ["--url-query", "q=a b"], ["--url-query", "+r=%41"],
+    ["--variable", "a=1 2"], ["--variable", "%TOKEN"], ["--expand-data", "{{a}}"],
+    ["--expand-data", "x={{a:url}}"], ["--expand-header", "X-V: {{TOKEN}}"],
+    ["--expand-data", "{{a:b64}}"], ["--expand-user-agent", "{{a:json}}"],
 ]
 
 # Put together at random, as `-F a=...`.
