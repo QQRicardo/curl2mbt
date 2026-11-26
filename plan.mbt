@@ -72,6 +72,9 @@ pub struct RequestPlan {
   output_file : String?
   /// `--create-dirs`: create the directories of `output_file`.
   create_dirs : Bool
+  /// `-w`: what to write after the body, in the syntax of curl, with only
+  /// the variables that programs write.
+  write_out : String?
   /// `-m`: the time each attempt may take.
   max_time_ms : Int32?
   /// `--retry` and the options that go with it.

@@ -168,6 +168,16 @@ CASES = [
     ["--remote-name-all", "-o", "x", "U/y"],
     ["--remote-name-all", "--no-remote-name", "U/y"],
     ["-O", "--no-remote-name", "U/y"],
+    # Write-out
+    ["-w", "[%{http_code}][%{response_code}][%{content_type}][%{size_download}][%{url_effective}][%{method}]\\n", "U/a?q=1#f"],
+    ["-w", "%%|%x|\\t|\\\\|\\x|%{stderr}to err%{stdout}|%{num_redirects}", "-d", "x", "U"],
+    ["-L", "-w", "[%{num_redirects}][%{url_effective}][%{method}][%{http_code}]", "-d", "x", "U/r/302?to=/t"],
+    ["-L", "-w", "[%{num_redirects}][%{url_effective}][%{method}]", "-d", "x", "U/r/307?to=/t%3Fz=1"],
+    ["-L", "-w", "[%{num_redirects}][%{url_effective}]", "U"],
+    ["-f", "-w", "[%{http_code}][%{size_download}]", "U/status/404"],
+    ["--fail-with-body", "-w", "[%{http_code}][%{size_download}]", "U/status/404"],
+    ["-I", "-w", "[%{size_download}][%{method}]", "U"],
+    ["-o", "out", "-w", "[%{size_download}]", "U"],
     # Retries
     ["--retry", "2", "--retry-delay", "0.2", "U/flaky/503/1"],
     ["--retry", "1", "--retry-delay", "0.2", "U/flaky/503/3"],

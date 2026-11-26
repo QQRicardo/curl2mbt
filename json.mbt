@@ -110,6 +110,9 @@ pub fn RequestPlan::to_json(self : RequestPlan) -> Json {
     out["output_file"] = Json::string(path)
   }
   flag("create_dirs", self.create_dirs)
+  if self.write_out is Some(text) {
+    out["write_out"] = Json::string(text)
+  }
   if self.retry is Some(retry) {
     let fields : Map[String, Json] = {
       "count": Json::number(retry.count.to_double()),
@@ -335,7 +338,7 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
     "version", "method", "explicit_method", "url", "headers", "omit_user_agent",
     "auth", "body", "compressed", "follow_redirects", "max_redirects", "cookie_engine",
     "insecure", "fail_on_error", "fail_with_body", "output_file", "create_dirs",
-    "max_time_ms", "retry",
+    "max_time_ms", "retry", "write_out",
   ])
   if plan.integer("version", min=1) != Some(plan_version) {
     bad_plan("version", "must be \{plan_version}")
@@ -413,6 +416,19 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
   if create_dirs && output_file is None {
     bad_plan("create_dirs", "needs output_file")
   }
+  let write_out = match plan.fields.get("write_out") {
+    None => None
+    Some(_) => {
+      let text = well_formed(plan.at("write_out"), plan.string("write_out"))
+      if text == "" || text.has_prefix("@") {
+        bad_plan("write_out", "must not be empty or start with @")
+      }
+      if parse_write_out(text) is Err(message) {
+        bad_plan("write_out", message)
+      }
+      Some(text)
+    }
+  }
   let retry = match plan.fields.get("retry") {
     None => None
     Some(json) => {
@@ -483,5 +499,6 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
     create_dirs,
     max_time_ms: plan.integer("max_time_ms", min=1),
     retry,
+    write_out,
   }
 }

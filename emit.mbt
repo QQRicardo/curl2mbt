@@ -786,6 +786,24 @@ fn Emitter::request_statements(
   out.push("      _ => \"\"")
   out.push("    }")
   out.push("    if location == \"\" {")
+  let fields = self.transfer_fields()
+  if !fields.is_empty() {
+    let quoted_method = quoted(plan.http_method)
+    let final_method = if changes {
+      "if with_body { \{quoted_method} } else { \"GET\" }"
+    } else {
+      quoted_method
+    }
+    if fields.contains("redirects") {
+      out.push("      transfer.redirects = redirects")
+    }
+    if fields.contains("url") {
+      out.push("      transfer.url = origin + path")
+    }
+    if fields.contains("verb") {
+      out.push("      transfer.verb = \{final_method}")
+    }
+  }
   out.push("      return (response, client.read_all())")
   out.push("    }")
   out.push("    if redirects == \{plan.max_redirects} {")
@@ -896,6 +914,7 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
       redirect_code.split("\n").map(line => line.to_owned()).collect(),
     )
   }
+  lines.append(self.transfer_code())
   lines.append([
     "///|",
     "/// \{plan.http_method} \{plan.url.scheme}://\{plan.url.authority()}\{plan.url.path}",
@@ -937,11 +956,15 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
     "  }",
   ]
   if plan.fail_on_error && !plan.fail_with_body {
-    lines.append(check)
+    // curl writes what -w asks for before it fails.
+    lines.push("  if response.code >= 400 {")
+    lines.append(self.write_out_statements("    ", body_written=false))
+    lines.append(["    fail(\"HTTP status \\{response.code}\")", "  }"])
   } else if !plan.fail_on_error {
     lines.push("  ignore(response)")
   }
   lines.append(self.output_statements("  "))
+  lines.append(self.write_out_statements("  ", body_written=true))
   if plan.fail_with_body {
     lines.append(check)
   }
@@ -1110,4 +1133,137 @@ fn Emitter::retry_code(
   } else {
     "send_with_retries(Retries::{ left: \{retry.count}, pause: \{pause} })"
   }
+}
+
+///|
+/// The fields of `Transfer` that `-w` needs: where a redirected request
+/// went in the end.
+fn Emitter::transfer_fields(self : Emitter) -> Array[String] {
+  guard self.plan.follow_redirects &&
+    self.plan.write_out is Some(text) &&
+    parse_write_out(text) is Ok(parts) else {
+    return []
+  }
+  let fields = []
+  for
+    variable_field in [
+      ("num_redirects", "redirects"),
+      ("url_effective", "url"),
+      ("method", "verb"),
+    ] {
+    let (variable, field) = variable_field
+    if parts.iter().any(part => part is Variable(name) && name == variable) {
+      fields.push(field)
+    }
+  }
+  fields
+}
+
+///|
+/// The code that keeps where a redirected request went, for `-w`, with
+/// only the fields that it writes, so that none is unused.
+fn Emitter::transfer_code(self : Emitter) -> Array[String] {
+  let fields = self.transfer_fields()
+  if fields.is_empty() {
+    return []
+  }
+  let declarations = []
+  let values = []
+  for field in fields {
+    let (kind, value) = if field == "redirects" {
+      ("Int32", "0")
+    } else {
+      ("String", "\"\"")
+    }
+    declarations.push("  mut \{field} : \{kind}")
+    values.push("\{field}: \{value}")
+  }
+  [
+    "///|",
+    "/// Where the request went in the end, for -w.",
+    "struct Transfer {",
+    ..declarations,
+    "}",
+    "",
+    "///|",
+    "let transfer : Transfer = { \{values.join(", ")} }",
+    "",
+  ]
+}
+
+///|
+/// The statements that write what `-w` asks for. `body_written` is false
+/// where `-f` keeps the body from being written.
+fn Emitter::write_out_statements(
+  self : Emitter,
+  indent : String,
+  body_written~ : Bool,
+) -> Array[String] {
+  let plan = self.plan
+  guard plan.write_out is Some(text) && parse_write_out(text) is Ok(parts) else {
+    return []
+  }
+  self.import_package("moonbitlang/async/stdio")
+  let out : Array[String] = []
+  let lets : Map[String, String] = Map([])
+  let pending = StringBuilder()
+  let mut stream = "stdout"
+  let flush = () => {
+    let text = pending.to_string()
+    if text != "" {
+      out.push("\{indent}@stdio.\{stream}.write(\"\{text}\")")
+      pending.reset()
+    }
+  }
+  for part in parts {
+    match part {
+      Text(text) => pending.write_string(escape_text(text))
+      ToStderr => {
+        flush()
+        stream = "stderr"
+      }
+      ToStdout => {
+        flush()
+        stream = "stdout"
+      }
+      Variable(name) => {
+        let tracked = self.transfer_fields()
+        let expression = match name {
+          "http_code" | "response_code" => Some("response.code")
+          "content_type" => {
+            lets["content_type"] = "response.headers.get(\"Content-Type\").unwrap_or(\"\")"
+            Some("content_type")
+          }
+          "size_download" if body_written => {
+            lets["size_download"] = "body.binary().length()"
+            Some("size_download")
+          }
+          "num_redirects" if tracked.contains("redirects") =>
+            Some("transfer.redirects")
+          "url_effective" if tracked.contains("url") => Some("transfer.url")
+          "method" if tracked.contains("verb") => Some("transfer.verb")
+          _ => None
+        }
+        match expression {
+          Some(expression) => pending.write_string("\\{\{expression}}")
+          None =>
+            pending.write_string(
+              escape_text(
+                match name {
+                  "size_download" | "num_redirects" => "0"
+                  "url_effective" => plan.url.to_string()
+                  _ => plan.http_method
+                },
+              ),
+            )
+        }
+      }
+    }
+  }
+  flush()
+  let statements = lets
+    .iter()
+    .map(entry => "\{indent}let \{entry.0} = \{entry.1}")
+    .collect()
+  statements + out
 }

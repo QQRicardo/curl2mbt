@@ -237,6 +237,9 @@ fn RequestPlan::curl_arguments(
   if self.create_dirs {
     flag("--create-dirs")
   }
+  if self.write_out is Some(text) {
+    option("-w", Argument::text(text))
+  }
   if self.max_time_ms is Some(ms) {
     option("-m", Argument::text(seconds_text(ms)))
   }

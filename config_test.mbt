@@ -96,6 +96,16 @@ test "what curl reads differently" {
       #|  help: end the value with "; a value cannot go on to the next line, but \n in quotes is a line break
     ),
   )
+  // Versions of curl differ about these CRs.
+  inspect(
+    config_errors("url = http://h/\r\n \t\r\n-d=x\r\ndata = x\r\n"),
+    content=(
+      #|error[config-syntax] at 2:1: versions of curl differ about a line of blanks that ends with CR
+      #|  help: remove the blanks
+      #|error[config-syntax] at 3:1: versions of curl differ about a CR right after an option
+      #|  help: put the value in quotes after a blank, or end the line with LF only
+    ),
+  )
 }
 
 ///|

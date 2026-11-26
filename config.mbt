@@ -48,11 +48,8 @@ fn read_config_line(
   options : Array[Occurrence],
 ) -> Unit {
   // A file from Windows ends its lines with CR LF.
-  let end = if end > start && text.get(end - 1) is Some('\r') {
-    end - 1
-  } else {
-    end
-  }
+  let crlf = end > start && text.get(end - 1) is Some('\r')
+  let end = if crlf { end - 1 } else { end }
   let fail = (message : String, help : String, from : Int32, to : Int32) => {
     report.error(
       "config-syntax",
@@ -64,6 +61,13 @@ fn read_config_line(
   let mut pos = start
   while pos < end && text.get(pos) is Some(unit) && is_config_space(unit) {
     pos += 1
+  }
+  if crlf && pos == end && pos > start {
+    fail(
+      "versions of curl differ about a line of blanks that ends with CR", "remove the blanks",
+      start, end,
+    )
+    return
   }
   if pos == end || text.get(pos) is Some('#') {
     return
@@ -105,6 +109,14 @@ fn read_config_line(
   }
   let name = text[name_start:pos].to_owned()
   let name_end = pos
+  // curl 8.19 takes the CR into the option, and later versions do not.
+  if crlf && name_end == end {
+    fail(
+      "versions of curl differ about a CR right after an option", "put the value in quotes after a blank, or end the line with LF only",
+      name_start, end,
+    )
+    return
+  }
   while pos < end &&
         text.get(pos) is Some(unit) &&
         (is_config_space(unit) || is_separator(unit)) {

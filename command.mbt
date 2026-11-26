@@ -103,6 +103,7 @@ priv struct Settings {
   mut remote_name_all : Bool
   mut output_dir : String?
   mut create_dirs : Bool
+  mut write_out : String?
   mut fail_with_body : Bool
   mut globoff : Bool
   mut path_as_is : Bool
@@ -134,7 +135,6 @@ fn output_only(name : String) -> String? {
     | "include"
     | "show-headers"
     | "dump-header"
-    | "write-out"
     | "buffer"
     | "fail-early" => Some("where curl puts the response")
     "disable" => Some("which configuration files curl reads")
@@ -406,10 +406,11 @@ fn Settings::new(report : Report, windows~ : Bool) -> Settings {
     remote_name_all: false,
     output_dir: None,
     create_dirs: false,
+    write_out: None,
     fail_with_body: false,
     globoff: false,
     path_as_is: false,
-    variables: {},
+    variables: Map([]),
   }
 }
 
@@ -558,6 +559,7 @@ fn Settings::apply(self : Settings, option : Occurrence) -> Unit {
         }
       }
     "create-dirs" => self.create_dirs = option.on
+    "write-out" => self.apply_write_out(option)
     "max-time" => self.apply_max_time(option)
     "retry" | "retry-delay" | "retry-max-time" => self.apply_retry(option)
     "retry-all-errors" => {

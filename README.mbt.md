@@ -197,6 +197,7 @@ dependency and works on every backend; the programs run on native and wasm.
 | How it is sent | `-L`, `--max-redirs`, `-k`, `-f`, `--fail-with-body`, `-m`, `--compressed` |
 | Retries | `--retry`, `--retry-delay`, `--retry-max-time`, `--retry-all-errors`; `--retry-connrefused` only together with `--retry-all-errors` |
 | Where the response goes | `-o`, `-O`, `--remote-name-all`, `--output-dir`, `--create-dirs`; the first of `-o` and `-O` counts, and a later one is reported |
+| What is written after the body | `-w` with `%{http_code}`, `%{response_code}`, `%{content_type}`, `%{size_download}`, `%{num_redirects}`, `%{url_effective}`, `%{method}`, `%{stderr}` and `%{stdout}`, `%%` and the escapes of curl |
 | Variables | `--variable` with `name=value` or `%NAME`, which stays a reference to the environment variable; `--expand-` before any option that takes a value, with `{{name}}` and the functions `trim`, `json`, `url`, `b64` and `64dec` |
 | Reported as without effect on the request | options about headers in the output, progress and connection reuse |
 
@@ -209,7 +210,9 @@ framed, and URLs that clients read differently.
 In config files, lines that curl reads otherwise than they look are rejected:
 blanks before the option, a value that goes on after a blank without quotes,
 text after the closing quote, a quote that is not closed, and CR, vertical
-tabs or form feeds inside a line.
+tabs or form feeds inside a line. So are lines that end with CR LF and have
+only blanks, or nothing after the option, because curl 8.19 takes the CR into
+the option where later versions do not.
 
 Of variables, those that curl would replace with nothing are rejected, and so
 are variables from files, defaults for environment variables, ranges of bytes,
@@ -235,6 +238,8 @@ A program writes the body of the response to the standard output, as curl does,
 or to the file that `-o` or `-O` names, which it replaces. With `-f` a status of
 400 or more ends the program before anything is written; with `--fail-with-body`
 after the body is written. `-i` and `-I` do not put the header lines in the file.
+What `-w` asks for comes after the body; with `-f` it is written before the
+program ends, with a `%{size_download}` of 0, as curl does.
 
 With `--retry` it sends the request again after a timeout of `-m`, or after a
 status of 408, 429, 500, 502, 503, 504, 522 or 524, as curl does: it waits one

@@ -265,6 +265,7 @@ fn Settings::build(self : Settings) -> RequestPlan? {
     create_dirs: self.create_dirs && output_file is Some(_),
     max_time_ms: self.max_time_ms,
     retry: self.build_retry(),
+    write_out: self.write_out,
   })
 }
 

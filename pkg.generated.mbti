@@ -124,6 +124,7 @@ pub struct RequestPlan {
   fail_with_body : Bool
   output_file : String?
   create_dirs : Bool
+  write_out : String?
   max_time_ms : Int32?
   retry : Retry?
 }
