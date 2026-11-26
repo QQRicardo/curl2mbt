@@ -249,6 +249,15 @@ fn RequestPlan::curl_arguments(
   if self.create_dirs {
     flag("--create-dirs")
   }
+  if self.no_clobber {
+    flag("--no-clobber")
+  }
+  if self.remove_on_error {
+    flag("--remove-on-error")
+  }
+  if self.max_filesize is Some(size) {
+    option("--max-filesize", Argument::text(size.to_string()))
+  }
   if self.write_out is Some(text) {
     option("-w", Argument::text(text))
   }

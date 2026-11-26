@@ -135,6 +135,9 @@ pub struct RequestPlan {
   fail_with_body : Bool
   output_file : String?
   create_dirs : Bool
+  no_clobber : Bool
+  remove_on_error : Bool
+  max_filesize : Int64?
   write_out : String?
   max_time_ms : Int32?
   retry : Retry?

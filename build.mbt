@@ -252,6 +252,7 @@ fn Settings::build(self : Settings) -> RequestPlan? {
   let url = self.complete_url(parsed.url)
   let output_file = self.output_file(url)
   let proxy = self.build_proxy(url)
+  self.check_output_options(output_file)
   Some({
     http_method,
     explicit_method: self.request is Some(_),
@@ -277,6 +278,9 @@ fn Settings::build(self : Settings) -> RequestPlan? {
     fail_with_body: self.fail_with_body,
     output_file,
     create_dirs: self.create_dirs && output_file is Some(_),
+    no_clobber: self.no_clobber is Some(_) && output_file is Some(_),
+    remove_on_error: self.remove_on_error is Some(_) && output_file is Some(_),
+    max_filesize: self.max_filesize,
     max_time_ms: self.max_time_ms,
     retry: self.build_retry(),
     write_out: self.write_out,

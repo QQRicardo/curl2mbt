@@ -116,6 +116,11 @@ pub fn RequestPlan::to_json(self : RequestPlan) -> Json {
     out["output_file"] = Json::string(path)
   }
   flag("create_dirs", self.create_dirs)
+  flag("no_clobber", self.no_clobber)
+  flag("remove_on_error", self.remove_on_error)
+  if self.max_filesize is Some(size) {
+    out["max_filesize"] = Json::number(size.to_double())
+  }
   if self.write_out is Some(text) {
     out["write_out"] = Json::string(text)
   }
@@ -351,7 +356,8 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
     "version", "method", "explicit_method", "url", "headers", "omit_user_agent",
     "auth", "body", "compressed", "follow_redirects", "location_trusted", "keep_post",
     "max_redirects", "cookie_engine", "insecure", "fail_on_error", "fail_with_body",
-    "output_file", "create_dirs", "max_time_ms", "retry", "write_out", "proxy",
+    "output_file", "create_dirs", "max_time_ms", "retry", "write_out", "proxy", "no_clobber",
+    "remove_on_error", "max_filesize",
   ])
   if plan.integer("version", min=1) != Some(plan_version) {
     bad_plan("version", "must be \{plan_version}")
@@ -426,6 +432,25 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
     None
   }
   let create_dirs = plan.flag("create_dirs")
+  let no_clobber = plan.flag("no_clobber")
+  let remove_on_error = plan.flag("remove_on_error")
+  if (no_clobber || remove_on_error) && output_file is None {
+    bad_plan(
+      if no_clobber {
+        "no_clobber"
+      } else {
+        "remove_on_error"
+      },
+      "needs output_file",
+    )
+  }
+  let max_filesize = match plan.fields.get("max_filesize") {
+    None => None
+    Some(Number(n, ..)) if n >= 1.0 &&
+      n <= max_filesize_limit.to_double() &&
+      n == n.floor() => Some(n.to_int64())
+    Some(_) => bad_plan("max_filesize", "must be a whole number from 1 to 2^53")
+  }
   if create_dirs && output_file is None {
     bad_plan("create_dirs", "needs output_file")
   }
@@ -572,6 +597,9 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
     fail_with_body,
     output_file,
     create_dirs,
+    no_clobber,
+    remove_on_error,
+    max_filesize,
     max_time_ms: plan.integer("max_time_ms", min=1),
     retry,
     write_out,

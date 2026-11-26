@@ -109,6 +109,11 @@ priv struct Settings {
   mut remote_name_all : Bool
   mut output_dir : String?
   mut create_dirs : Bool
+  /// `--no-clobber`, where it is.
+  mut no_clobber : Location?
+  /// `--remove-on-error`, where it is.
+  mut remove_on_error : Location?
+  mut max_filesize : Int64?
   mut write_out : String?
   mut fail_with_body : Bool
   mut globoff : Bool
@@ -417,6 +422,9 @@ fn Settings::new(report : Report, windows~ : Bool) -> Settings {
     remote_name_all: false,
     output_dir: None,
     create_dirs: false,
+    no_clobber: None,
+    remove_on_error: None,
+    max_filesize: None,
     write_out: None,
     fail_with_body: false,
     globoff: false,
@@ -597,6 +605,16 @@ fn Settings::apply(self : Settings, option : Occurrence) -> Unit {
         }
       }
     "create-dirs" => self.create_dirs = option.on
+    // --no-clobber turns it off.
+    "clobber" =>
+      self.no_clobber = if option.on { None } else { Some(option.location) }
+    "remove-on-error" =>
+      self.remove_on_error = if option.on {
+        Some(option.location)
+      } else {
+        None
+      }
+    "max-filesize" => self.apply_max_filesize(option)
     "write-out" => self.apply_write_out(option)
     "max-time" => self.apply_max_time(option)
     "retry" | "retry-delay" | "retry-max-time" => self.apply_retry(option)

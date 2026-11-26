@@ -78,6 +78,15 @@ pub struct RequestPlan {
   output_file : String?
   /// `--create-dirs`: create the directories of `output_file`.
   create_dirs : Bool
+  /// `--no-clobber`: if `output_file` exists, write to the first of
+  /// `output_file.1` to `output_file.100` that does not.
+  no_clobber : Bool
+  /// `--remove-on-error`: remove the file that was written when the program
+  /// fails afterwards, which `fail_with_body` makes it do.
+  remove_on_error : Bool
+  /// `--max-filesize`: fail, without writing the body, if the response is
+  /// larger, by its Content-Length or by what arrives.
+  max_filesize : Int64?
   /// `-w`: what to write after the body, in the syntax of curl, with only
   /// the variables that programs write.
   write_out : String?

@@ -207,6 +207,26 @@ CASES = [
     (["-x", "P", "-L", "-k", "S/"], ["proxy-without-tunnel"]),
     (["-x", "socks5://HOSTP", "-p", "U"], ["unsupported-proxy"]),
     (["-x", "http://[::1]:1", "-p", "U"], ["unsupported-proxy"]),
+    # Output options
+    ["--no-clobber", "-o", "old", "U"],
+    ["--no-clobber", "-o", "new", "U"],
+    ["--no-clobber", "-O", "U/old"],
+    ["--no-clobber", "-o", "exists", "U"],
+    ["--no-clobber", "--create-dirs", "-o", "sub/old", "U"],
+    ["--no-clobber", "-o", "-", "U"],
+    ["--clobber", "-o", "old", "U"],
+    ["--remove-on-error", "--fail-with-body", "-o", "old", "U/status/404"],
+    ["--remove-on-error", "--fail-with-body", "--no-clobber", "-o", "old", "U/status/404"],
+    ["--remove-on-error", "--no-remove-on-error", "--fail-with-body", "-o", "old", "U/status/404"],
+    ["--remove-on-error", "-o", "out", "U"],
+    ["--max-filesize", "5", "U"],
+    ["--max-filesize", "7", "-o", "out", "U"],
+    ["--max-filesize", "1k", "U"],
+    ["--max-filesize", "0", "U"],
+    ["--max-filesize", "5", "-I", "U"],
+    ["--max-filesize", "5", "-f", "U/status/404"],
+    ["--max-filesize", "5", "--fail-with-body", "-o", "old", "U/status/404"],
+    ["--max-filesize", "5", "-w", "[%{http_code}][%{size_download}]", "U"],
     # Retries
     ["--retry", "2", "--retry-delay", "0.2", "U/flaky/503/1"],
     ["--retry", "1", "--retry-delay", "0.2", "U/flaky/503/3"],
@@ -255,7 +275,8 @@ CASES = [
     (["--retry", "1", "--retry-connrefused", "U"], ["unsupported-option"]),
     (["--retry", "1.5", "U"], ["unsupported-value"]),
     (["-J", "-O", "U"], ["unsupported-option"]),
-    (["--no-clobber", "-o", "old", "U"], ["unsupported-option"]),
+    (["--no-clobber", "--retry", "1", "-o", "old", "U"], ["conflicting-options"]),
+    (["--max-filesize", "1.5", "U"], ["unsupported-value"]),
     ("curl U -d $'\\xff\\x00y'", ["shell-syntax"]),
 ]
 
@@ -448,7 +469,8 @@ def normal(requests, plan):
 
 def run_in(files, command, environment):
     """Runs `command` in a new copy of `files`, with a directory `exists` and
-    a file `old`, and gives what it changed there."""
+    a file `old`, and gives what it changed there: `None` for what it
+    removed."""
     directory = tempfile.mkdtemp()
     work = os.path.join(directory, "w")
     shutil.copytree(files, work)
@@ -459,7 +481,10 @@ def run_in(files, command, environment):
     result = subprocess.run(command, capture_output=True, env=environment, cwd=work)
     after = snapshot(work)
     shutil.rmtree(directory, ignore_errors=True)
-    return result, {k: v for k, v in after.items() if before.get(k) != v}
+    changed = {k: v for k, v in after.items() if before.get(k) != v}
+    # And what was removed.
+    changed.update({k: None for k in before if k not in after})
+    return result, changed
 
 
 def snapshot(directory):

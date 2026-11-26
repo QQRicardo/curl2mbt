@@ -61,8 +61,13 @@ test "outputs that are rejected" {
       ["-o", ""],
       ["--output-dir", ""],
       ["-J", "-O"],
-      ["--no-clobber", "-o", "f"],
-      ["--remove-on-error", "-o", "f"],
+      ["--no-clobber", "--retry", "1", "-o", "f"],
+      ["--remove-on-error", "--retry", "1", "-o", "f"],
+      ["--max-filesize", "1.5"],
+      ["--max-filesize", "1kb"],
+      ["--max-filesize", "-1"],
+      ["--max-filesize", ""],
+      ["--max-filesize", "9P"],
     ] {
     let words = ["curl", "http://h/"]
     words.append(arguments)

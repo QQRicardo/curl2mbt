@@ -197,7 +197,7 @@ dependency and works on every backend; the programs run on native and wasm.
 | How it is sent | `-L`, `--location-trusted`, `--post301`, `--post302`, `--post303`, `--max-redirs`, `-k`, `-f`, `--fail-with-body`, `-m`, `--compressed` |
 | Proxies | `-x` with an http or https proxy, through a tunnel that `CONNECT` makes: for https URLs, and with `-p` for all; `-U`, or the user and password in the proxy URL, which win over `-U` as in curl; `--proxy-basic` |
 | Retries | `--retry`, `--retry-delay`, `--retry-max-time`, `--retry-all-errors`; `--retry-connrefused` only together with `--retry-all-errors` |
-| Where the response goes | `-o`, `-O`, `--remote-name-all`, `--output-dir`, `--create-dirs`; the first of `-o` and `-O` counts, and a later one is reported |
+| Where the response goes | `-o`, `-O`, `--remote-name-all`, `--output-dir`, `--create-dirs`, `--no-clobber`, `--remove-on-error`, `--max-filesize`; the first of `-o` and `-O` counts, and a later one is reported; `--no-clobber` and `--remove-on-error` not together with `--retry` |
 | What is written after the body | `-w` with `%{http_code}`, `%{response_code}`, `%{content_type}`, `%{size_download}`, `%{num_redirects}`, `%{url_effective}`, `%{method}`, `%{stderr}` and `%{stdout}`, `%%` and the escapes of curl |
 | Variables | `--variable` with `name=value` or `%NAME`, which stays a reference to the environment variable; `--expand-` before any option that takes a value, with `{{name}}` and the functions `trim`, `json`, `url`, `b64` and `64dec` |
 | Reported as without effect on the request | options about headers in the output, progress and connection reuse |
@@ -247,6 +247,17 @@ or to the file that `-o` or `-O` names, which it replaces. With `-f` a status of
 after the body is written. `-i` and `-I` do not put the header lines in the file.
 What `-w` asks for comes after the body; with `-f` it is written before the
 program ends, with a `%{size_download}` of 0, as curl does.
+
+With `--no-clobber` a file that exists stays, and the body goes to the first of
+`NAME.1` to `NAME.100` that does not exist, as curl does on Linux, where a
+directory counts as a file that exists. With `--remove-on-error` the file that
+`--fail-with-body` wrote is removed when the program fails; programs write a
+file only after the whole body has arrived, so there is never a part of one.
+With `--max-filesize` a response that is larger, by its Content-Length, also
+of `-I`, or by what arrives, ends the program before anything of the body is
+written; curl 8.22 writes the first bytes of a response without a
+Content-Length before it stops. The size takes the units of curl, `k` for
+1024 bytes up to `p`, and is at most 2^53 bytes here.
 
 With `--retry` it sends the request again after a timeout of `-m`, or after a
 status of 408, 429, 500, 502, 503, 504, 522 or 524, as curl does: it waits one

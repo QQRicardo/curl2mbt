@@ -980,6 +980,18 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
   lines.append(body_lines)
   lines.append(request_lines)
   lines.push("}")
+  if plan.max_filesize is Some(_) {
+    lines.append(
+      too_large_code.split("\n").map(line => line.to_owned()).collect(),
+    )
+  }
+  if plan.no_clobber {
+    self.import_package("moonbitlang/async/fs")
+    self.import_package("moonbitlang/async/os_error")
+    lines.append(
+      write_new_file_code.split("\n").map(line => line.to_owned()).collect(),
+    )
+  }
   let attempt = match plan.max_time_ms {
     Some(ms) => {
       self.import_package("moonbitlang/async")
@@ -1014,13 +1026,36 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
     lines.push("  if response.code >= 400 {")
     lines.append(self.write_out_statements("    ", body_written=false))
     lines.append(["    fail(\"HTTP status \\{response.code}\")", "  }"])
-  } else if !plan.fail_on_error {
+  } else if !plan.fail_on_error && plan.max_filesize is None {
     lines.push("  ignore(response)")
+  }
+  if plan.max_filesize is Some(size) {
+    // curl writes nothing of the body then, and what -w asks for.
+    lines.push("  if too_large(response, body, \{size}L) {")
+    lines.append(self.write_out_statements("    ", body_written=false))
+    lines.append([
+      "    fail(\"the response is larger than --max-filesize allows\")", "  }",
+    ])
   }
   lines.append(self.output_statements("  "))
   lines.append(self.write_out_statements("  ", body_written=true))
   if plan.fail_with_body {
-    lines.append(check)
+    if plan.remove_on_error && plan.output_file is Some(path) {
+      let written = if plan.no_clobber {
+        "written"
+      } else {
+        "\"\{escape_text(path)}\""
+      }
+      lines.append([
+        "  if response.code >= 400 {",
+        "    // --remove-on-error",
+        "    @fs.remove(\{written})",
+        "    fail(\"HTTP status \\{response.code}\")",
+        "  }",
+      ])
+    } else {
+      lines.append(check)
+    }
   }
   lines.push("}")
   for name in ["moonbitlang/async/http", "moonbitlang/async/io"] {
@@ -1072,9 +1107,21 @@ fn Emitter::output_statements(self : Emitter, indent : String) -> Array[String] 
           "\{indent}@fs.mkdir(\"\{escape_text(directory)}\", recursive=true, allow_exist=true)",
         )
       }
-      out.push(
-        "\{indent}@fs.write_file(\"\{escape_text(path)}\", body, create_mode=CreateOrTruncate)",
-      )
+      if self.plan.no_clobber {
+        let keep = if self.plan.remove_on_error && self.plan.fail_with_body {
+          "let written = "
+        } else {
+          "ignore("
+        }
+        let close = if keep == "ignore(" { ")" } else { "" }
+        out.push(
+          "\{indent}\{keep}write_new_file(\"\{escape_text(path)}\", body)\{close}",
+        )
+      } else {
+        out.push(
+          "\{indent}@fs.write_file(\"\{escape_text(path)}\", body, create_mode=CreateOrTruncate)",
+        )
+      }
       out
     }
   }
@@ -1334,3 +1381,50 @@ fn Emitter::drops_body(self : Emitter) -> Array[Int32] {
       [301, 302, 303].filter(code => !self.plan.keep_post.contains(code))
   }
 }
+
+///|
+/// What a program checks for `--max-filesize`.
+let too_large_code : String =
+  #|
+  #|///|
+  #|/// Whether the response is larger than `limit` bytes, by its Content-Length
+  #|/// or by what arrived, as --max-filesize checks.
+  #|fn too_large(response : @http.Response, body : &@io.Data, limit : Int64) -> Bool {
+  #|  if body.binary().length().to_int64() > limit {
+  #|    return true
+  #|  }
+  #|  guard response.headers.get("Content-Length") is Some(text) else {
+  #|    return false
+  #|  }
+  #|  let mut length = 0L
+  #|  for char in text.trim() {
+  #|    guard char is ('0'..<='9') else { return false }
+  #|    length = length * 10 + (char.to_int() - '0'.to_int()).to_int64()
+  #|    if length > limit {
+  #|      return true
+  #|    }
+  #|  }
+  #|  false
+  #|}
+
+///|
+/// How a program writes a file for `--no-clobber`.
+let write_new_file_code : String =
+  #|
+  #|///|
+  #|/// Writes `body` to `path` if there is no such file yet, or else to the
+  #|/// first of `path.1` to `path.100` that does not exist, as --no-clobber
+  #|/// does. Gives the name of the file.
+  #|async fn write_new_file(path : String, body : &@io.Data) -> String {
+  #|  for i = 0; i < 100; i = i + 1 {
+  #|    let name = if i == 0 { path } else { "\{path}.\{i}" }
+  #|    @fs.write_file(name, body, create_mode=CreateNew) catch {
+  #|      @os_error.OSError(_) as err if err.is_EEXIST() => continue
+  #|      err => raise err
+  #|    }
+  #|    return name
+  #|  }
+  #|  let name = "\{path}.100"
+  #|  @fs.write_file(name, body, create_mode=CreateNew)
+  #|  name
+  #|}
