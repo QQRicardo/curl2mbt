@@ -12,6 +12,11 @@ script runs on 127.0.0.1. SEED in the environment picks other random cases.
    named curl that only shows its arguments; the plan of the text must be the
    plan of these arguments.
 
+3. Each command of 1 and 2 that curl2mbt accepts is written back with
+   `--to-curl posix`. bash runs that text with curl, and the request must be
+   the same, or with the program that shows its arguments, and the plan of
+   these must be the same but for which header fields are implied.
+
 A command that curl2mbt rejects is counted, not compared; the lists say which
 ones those must be. Something curl2mbt accepts must be the same. Differences
 that are left out on purpose: the User-Agent curl sends by default, Host
@@ -211,6 +216,71 @@ def run_cli(arguments):
     raise SystemExit("curl2mbt failed: %r\n%s%s" % (arguments, output, result.stderr.decode()))
 
 
+ROUND_TRIP = {}
+NOT_EXPRESSIBLE = {}
+
+
+def to_curl(arguments):
+    """The text of `--to-curl posix`, or None if there is none."""
+    result = subprocess.run(CLI + ["--to-curl", "posix"] + arguments, capture_output=True)
+    if result.returncode == 0:
+        return result.stdout.decode()
+    if result.returncode == 1 and result.stdout.startswith(b"error[not-expressible]"):
+        reason = result.stdout.decode().strip()[len("error[not-expressible]: "):]
+        NOT_EXPRESSIBLE.setdefault(reason, arguments)
+        return None
+    raise SystemExit("curl2mbt failed: %r\n%s%s" % (arguments, result.stdout.decode(), result.stderr.decode()))
+
+
+def tally(outcome):
+    ROUND_TRIP[outcome] = ROUND_TRIP.get(outcome, 0) + 1
+    if outcome not in ("same", "not expressible"):
+        print(outcome)
+
+
+def round_trip_argv(server, arguments, plan, want):
+    """Sends what `--to-curl` writes for `arguments` with bash and curl."""
+    text = to_curl(["curl"] + arguments)
+    if text is None:
+        return tally("not expressible")
+    script = DIRECTORY + "-script"
+    with open(script, "w", encoding="utf-8", newline="") as file:
+        file.write("'%s' -q -sS --max-time 5%s" % (CURL, text[len("curl"):]))
+    server.requests.clear()
+    result = subprocess.run([BASH, "--norc", "--noprofile", script], capture_output=True, cwd=DIRECTORY)
+    if len(server.requests) != 1:
+        return tally("round trip %r -> %r: curl made %d requests: %r" % (
+            arguments, text, len(server.requests), result.stderr))
+    try:
+        got = received(server.requests[0], plan)
+    except AssertionError as error:
+        return tally("round trip %r -> %r: %s" % (arguments, text, error))
+    tally("same" if got == want else "round trip %r -> %r:\nplan %r\ncurl %r" % (arguments, text, want, got))
+
+
+def without_implied(plan):
+    return dict(plan, headers=[{k: v for k, v in h.items() if k != "implied"} for h in plan["headers"]])
+
+
+def round_trip_text(text, plan, directory):
+    """Reads what `--to-curl` writes for `text` with bash."""
+    again = to_curl(["--text", text])
+    if again is None:
+        return tally("not expressible")
+    words = bash_arguments(again, directory)
+    if words is None:
+        return tally("round trip %r -> %r: bash does not run this" % (text, again))
+    try:
+        words = [word.decode() for word in words]
+    except UnicodeDecodeError:
+        return tally("same")
+    other, codes = run_cli(["curl"] + words)
+    if other is None:
+        return tally("round trip %r -> %r: rejected %s" % (text, again, codes))
+    same = without_implied(substitute(plan)) == without_implied(other)
+    tally("same" if same else "round trip %r -> %r:\nplan %r\nbash %r" % (text, again, plan, other))
+
+
 def names_missing_file(node):
     if isinstance(node, dict):
         if "file" in node:
@@ -237,7 +307,10 @@ def compare_argv(server, arguments):
         want, got = expected(plan), received(server.requests[0], plan)
     except AssertionError as error:
         return str(error)
-    return "same" if want == got else "plan %r\ncurl %r" % (want, got)
+    if want != got:
+        return "plan %r\ncurl %r" % (want, got)
+    round_trip_argv(server, arguments, plan, want)
+    return "same"
 
 
 def bash_arguments(text, directory):
@@ -293,7 +366,10 @@ def compare_text(text, directory):
     other, codes = run_cli(["curl"] + words)
     if other is None:
         return "the arguments of bash are rejected: %s %r" % (codes, words)
-    return "same" if substitute(plan) == other else "plan %r\nbash %r" % (plan, other)
+    if substitute(plan) != other:
+        return "plan %r\nbash %r" % (plan, other)
+    round_trip_text(text, plan, directory)
+    return "same"
 
 
 def main():
@@ -345,6 +421,11 @@ def main():
     shutil.rmtree(DIRECTORY, ignore_errors=True)
     for (kind, outcome), number in sorted(counts.items()):
         print("%s: %d %s" % (kind, number, outcome))
+    for outcome in ("same", "not expressible"):
+        print("written back: %d %s" % (ROUND_TRIP.pop(outcome, 0), outcome))
+    for reason, example in sorted(NOT_EXPRESSIBLE.items()):
+        print("  not expressible: %s, as for %r" % (reason, example))
+    failures += sum(ROUND_TRIP.values())
     if failures:
         raise SystemExit("%d failures" % failures)
 

@@ -27,6 +27,11 @@ pub suberror PlanError {
   PlanError(path~ : String, message~ : String)
 }
 
+#derive(@debug.Debug)
+pub suberror ToCurlError {
+  ToCurlError(String)
+}
+
 // Types and methods
 #derive(Eq, @debug.Debug)
 pub enum Auth {
@@ -122,6 +127,7 @@ pub struct RequestPlan {
 }
 pub fn RequestPlan::emit(Self, target? : Target, secrets? : Secrets) -> Emitted raise EmitError
 pub fn RequestPlan::from_json(@json.Json) -> Self raise PlanError
+pub fn RequestPlan::to_curl(Self, shell? : Shell) -> String raise ToCurlError
 pub fn RequestPlan::to_json(Self) -> @json.Json
 
 #derive(Eq, @debug.Debug)

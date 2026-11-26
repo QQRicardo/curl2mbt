@@ -8,6 +8,10 @@ where curl.exe of Windows sends the request to a server this script runs on
 127.0.0.1; the target and the body that arrive are compared with the plan.
 SEED in the environment picks other random cases.
 
+What `--to-curl cmd` writes for each text that curl2mbt accepts goes through
+cmd.exe and curl.exe as well, and its plan must be the same but for which
+header fields are implied.
+
 A command that curl2mbt rejects is counted, not compared. All texts are ASCII,
 since curl for Windows sends other characters in the code page of the system.
 """
@@ -142,7 +146,30 @@ def read(text):
     raise SystemExit("curl2mbt failed: %r\n%s%s" % (text, output, result.stderr.decode()))
 
 
-def compare(server, text):
+ROUND_TRIP = {}
+
+
+def without_implied(plan):
+    return dict(plan, headers=[{k: v for k, v in h.items() if k != "implied"} for h in plan["headers"]])
+
+
+def round_trip(server, text, plan):
+    result = subprocess.run(CLI + ["--to-curl", "cmd", "--shell", "cmd", "--text", text], capture_output=True)
+    if result.returncode == 1 and result.stdout.startswith(b"error[not-expressible]"):
+        return "not expressible"
+    if result.returncode != 0:
+        raise SystemExit("curl2mbt failed: %r\n%s%s" % (text, result.stdout.decode(), result.stderr.decode()))
+    again = result.stdout.decode()
+    other, codes = read(again)
+    if other is None:
+        return "%r is rejected: %s" % (again, codes)
+    if without_implied(other) != without_implied(plan):
+        return "%r reads as\n%r" % (again, other)
+    outcome = compare(server, again, write_back=False)
+    return outcome if outcome == "same" else "%r: %s" % (again, outcome)
+
+
+def compare(server, text, write_back=True):
     text = text.replace("HOST", server.authority)
     plan, codes = read(text)
     if plan is None:
@@ -173,7 +200,14 @@ def compare(server, text):
         "headers": sorted((h["name"].lower(), value_bytes(h["value"])) for h in plan["headers"]),
     }
     got["headers"].sort()
-    return "same" if want == got else "plan %r\ncmd  %r" % (want, got)
+    if want != got:
+        return "plan %r\ncmd  %r" % (want, got)
+    if write_back:
+        outcome = round_trip(server, text, plan)
+        ROUND_TRIP[outcome] = ROUND_TRIP.get(outcome, 0) + 1
+        if outcome not in ("same", "not expressible"):
+            print("written back %r: %s" % (text, outcome))
+    return "same"
 
 
 def main():
@@ -193,6 +227,9 @@ def main():
         counts[kind] = counts.get(kind, 0) + 1
     for (kind, outcome), number in sorted(counts.items()):
         print("%s: %d %s" % (kind, number, outcome))
+    for outcome in ("same", "not expressible"):
+        print("written back: %d %s" % (ROUND_TRIP.pop(outcome, 0), outcome))
+    failures += sum(ROUND_TRIP.values())
     if failures:
         raise SystemExit("%d failures" % failures)
 

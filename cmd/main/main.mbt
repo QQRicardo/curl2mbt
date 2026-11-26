@@ -19,6 +19,8 @@ let usage : String =
   #|  --shell SHELL     what reads the text: posix, a POSIX shell or bash, which
   #|                    is the default, or cmd, the prompt of Windows
   #|  --plan            print the request as JSON instead of a program
+  #|  --to-curl SHELL   print the request as a curl command for SHELL, posix or
+  #|                    cmd, instead of a program
   #|  --inline-secrets  write passwords, tokens and cookies into the program
   #|                    instead of reading them from environment variables
   #|  --help            print this help
@@ -72,6 +74,7 @@ fn diagnostic_to_json(found : @curl2mbt.Diagnostic) -> Json {
 /// What to print for a command that was read.
 priv struct Settings {
   plan : Bool
+  to_curl : @curl2mbt.Shell?
   secrets : @curl2mbt.Secrets
   shell : @curl2mbt.Shell
 }
@@ -138,6 +141,12 @@ fn output(
 ) -> Outcome {
   if settings.plan {
     plan_output(parsed)
+  } else if settings.to_curl is Some(shell) {
+    let text = parsed.plan.to_curl(shell~) catch {
+      ToCurlError(message) =>
+        return { output: "error[not-expressible]: \{message}", status: 1, }
+    }
+    { output: text, status: 0, }
   } else {
     program_output(parsed, settings.secrets, source?)
   }
@@ -158,6 +167,7 @@ fn run(
   read_file : (String) -> String raise,
 ) -> Outcome {
   let mut plan = false
+  let mut to_curl : @curl2mbt.Shell? = None
   let mut secrets : @curl2mbt.Secrets = FromEnv
   let mut shell : @curl2mbt.Shell? = None
   let mut rest = arguments
@@ -180,10 +190,27 @@ fn run(
         rest = more
       }
       ["--shell", ..] => return usage_error("--shell takes posix or cmd")
+      ["--to-curl", "posix", .. more] => {
+        to_curl = Some(Posix)
+        rest = more
+      }
+      ["--to-curl", "cmd", .. more] => {
+        to_curl = Some(Cmd)
+        rest = more
+      }
+      ["--to-curl", ..] => return usage_error("--to-curl takes posix or cmd")
       _ => break
     }
   }
-  let settings = Settings::{ plan, secrets, shell: shell.unwrap_or(Posix), }
+  if plan && to_curl is Some(_) {
+    return usage_error("--plan and --to-curl print different things")
+  }
+  let settings = Settings::{
+    plan,
+    to_curl,
+    secrets,
+    shell: shell.unwrap_or(Posix),
+  }
   match rest {
     [] => usage_error("there is no curl command")
     ["--help" | "-h"] => { output: usage, status: 0, }

@@ -71,10 +71,12 @@ $ moon run cmd/main -- curl -u user:pass -d a=1 https://example.com/
 $ moon run cmd/main -- --text 'curl -H "X-Key: $KEY" https://example.com/'
 $ moon run cmd/main -- --file request.sh
 $ moon run cmd/main -- --shell cmd --file request.txt
+$ moon run cmd/main -- --shell cmd --to-curl posix --file request.txt
 ```
 
 `--shell cmd` is for commands that were copied for the prompt of Windows. The
-tool prints a program. With `--plan` it prints the request as JSON instead. It
+tool prints a program. With `--plan` it prints the request as JSON instead, and
+with `--to-curl posix` or `--to-curl cmd` as a curl command for that shell. It
 exits with 1 if the command is rejected, with every reason.
 
 Passwords, tokens and cookies of the command do not go into the program, which
@@ -116,6 +118,16 @@ test "write a program" {
 }
 
 ///|
+test "write the command for another shell" {
+  let text = "curl -H \"X-Key: %KEY%\" -d \"a=1&b=2\" https://example.com/"
+  let plan = @curl2mbt.parse(text, shell=Cmd).plan
+  inspect(
+    plan.to_curl(shell=Posix),
+    content="curl -H 'X-Key: '\"${KEY}\" --data-raw 'a=1&b=2' https://example.com/",
+  )
+}
+
+///|
 test "what cannot be represented" {
   let text = "curl --digest -u user:pass https://example.com/{id} | jq ."
   let found = @curl2mbt.parse(text).diagnostics catch {
@@ -139,6 +151,12 @@ the prompt of Windows, and `parse_argv` a command that has been split into
 arguments. Both give a `Parsed`: the `plan`, and warnings and notes about the
 command. `RequestPlan::to_json` and `RequestPlan::from_json` keep plans in
 JSON. Messages never repeat option values, which may hold passwords.
+
+`RequestPlan::to_curl` writes the plan as a curl command for a POSIX shell or
+cmd. Before it returns the text, it reads the text back and checks that curl
+sends the same request; header fields that curl adds on its own may then be
+written as options. What no command for the shell can say, such as bytes that
+are not UTF-8 for cmd, raises `ToCurlError`.
 
 `RequestPlan::emit` writes the program, or raises `EmitError` with every reason
 why moonbitlang/async cannot make the request. The library itself has no
@@ -225,14 +243,17 @@ Programs differ from curl in this:
   bash and compares the arguments. Listed and random cases; CI runs it with the
   curl and bash of Ubuntu 26.04. Not compared: the User-Agent curl sends by
   default, Host unless the command sets it, and blanks around header values.
+  What `--to-curl posix` writes for each command goes through bash and curl
+  again, and the request must be the same.
 - `tools/compare_programs.py` builds the programs for a list of commands, runs
   them and curl against local servers, and compares the requests, the output and
   whether the run succeeds. CI does this on native and wasm, on Linux. With TLS
   only `-k` and the rejection of a self-signed certificate are compared, with
   HTTP/1.1 only.
 - `tools/compare_cmd.py` gives texts to the prompt of cmd.exe with the curl.exe
-  of Windows and compares what arrives with the plan. Listed and random cases of
-  ASCII characters; CI runs it on Windows.
+  of Windows and compares what arrives with the plan, also for what
+  `--to-curl cmd` writes. Listed and random cases of ASCII characters; CI runs
+  it on Windows.
 
 ## Status
 
