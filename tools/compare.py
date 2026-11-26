@@ -38,6 +38,7 @@ CURL = shutil.which("curl")
 BASH = shutil.which("bash")
 DIRECTORY = tempfile.mkdtemp()
 FILES = {
+    "sub/q?#\u00e9.bin": b"z", "{x}": b"braces",
     "f": b"a b\r\nc\0d&\xff\n", "empty": b"", "t.txt": b"text", "p.PNG": b"\x89P",
     "j.json": b"{}\n", "d e;f,g.xml": b"<x/>",
 }
@@ -147,6 +148,8 @@ def expected(plan):
     body = None
     if "data" in plan.get("body", {}):
         body = value_bytes(plan["body"]["data"])
+    elif "upload" in plan.get("body", {}):
+        body = file_bytes({"file": plan["body"]["upload"]})
     elif "body" in plan:
         fields.append((b"content-type", b"multipart/form-data"))
         body = []
@@ -304,6 +307,7 @@ def main():
             print("%s %r: wanted %s, got\n%s" % (kind, case, want, outcome))
         return outcome.split(" ")[0]
 
+    os.mkdir(os.path.join(DIRECTORY, "sub"))
     for name, data in FILES.items():
         with open(os.path.join(DIRECTORY, name), "wb") as file:
             file.write(data)

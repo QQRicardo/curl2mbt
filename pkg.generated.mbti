@@ -38,6 +38,7 @@ pub enum Auth {
 pub enum Body {
   Data(Value)
   Multipart(Array[Part])
+  Upload(String)
 }
 
 #derive(Eq, @debug.Debug)

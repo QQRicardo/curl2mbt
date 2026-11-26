@@ -79,6 +79,8 @@ priv struct Settings {
   mut data : Value?
   mut data_location : Location?
   parts : Array[Part]
+  mut upload : (String, Location)?
+  url_queries : Array[(String, Location)]
   mut form_location : Location?
   /// Whether `\\` separates the parts of a path.
   windows : Bool
@@ -362,6 +364,8 @@ fn Settings::new(report : Report, windows~ : Bool) -> Settings {
     data: None,
     data_location: None,
     parts: [],
+    upload: None,
+    url_queries: [],
     form_location: None,
     windows,
     json: false,
@@ -494,6 +498,8 @@ fn Settings::apply(self : Settings, option : Occurrence) -> Unit {
       }
     "data-urlencode" => self.apply_urlencode(option)
     "form" | "form-string" => self.apply_form(option)
+    "upload-file" => self.apply_upload(option)
+    "url-query" => self.apply_url_query(option)
     "compressed" => self.compressed = option.on
     "location" => self.follow = option.on
     "max-redirs" => self.apply_max_redirs(option)

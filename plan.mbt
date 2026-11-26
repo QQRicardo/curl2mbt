@@ -29,6 +29,9 @@ pub enum Body {
   /// A form, sent as multipart/form-data with any boundary that fits. The
   /// Content-Type is not in the headers of the plan.
   Multipart(Array[Part])
+  /// What the file of this name holds when the request is made, from `-T`.
+  /// Unlike other bodies it stays when a 301 or 302 redirects.
+  Upload(String)
 }
 
 ///|

@@ -127,7 +127,7 @@ fn Emitter::plan_environment(self : Emitter) -> Array[String] {
       for part in parts {
         names.append(part.content.env_names())
       }
-    None => ()
+    Some(Upload(_)) | None => ()
   }
   names
 }
@@ -792,7 +792,13 @@ fn Emitter::request_statements(
   out.push("      fail(\"more than \{plan.max_redirects} redirects\")")
   out.push("    }")
   if has_body {
-    out.push("    if response.code is (301 | 302 | 303) {")
+    // curl sends an upload again after a 301 or 302.
+    let codes = if plan.body is Some(Upload(_)) {
+      "303"
+    } else {
+      "301 | 302 | 303"
+    }
+    out.push("    if response.code is (\{codes}) {")
     out.push("      with_body = false")
     out.push("    }")
   }
@@ -854,6 +860,10 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
   let body_lines : Array[String] = []
   match plan.body {
     Some(Data(value)) => self.body_statements(value, body_lines)
+    Some(Upload(path)) =>
+      body_lines.push(
+        "  let body = \{self.bytes_value(Value::from_pieces([File(path~, read=Whole)]))}",
+      )
     Some(Multipart(parts)) => {
       self.form_statements(parts, body_lines)
       let header = Header::{

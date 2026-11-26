@@ -151,9 +151,10 @@ dependency and works on every backend; the programs run on native and wasm.
 | Shell | POSIX shell and bash words: quotes, `$'...'`, continued lines, comments, and `"$NAME"` or `"${NAME}"` as references to environment variables |
 | Windows cmd | the prompt, not batch files: carets, quotes, continued lines, and `"%NAME%"` as a reference to an environment variable |
 | Method | `-X`, `-I`, `-G` |
-| URL | http and https; `--url`, `-g`, `--path-as-is`, user information |
+| URL | http and https; `--url`, `--url-query`, `-g`, `--path-as-is`, user information |
 | Header fields | `-H` with all its forms, `-A`, `-e`, `-b` with cookies, `-r` |
 | Body | `-d`, `--data-ascii`, `--data-binary`, `--data-raw`, `--data-urlencode`, `--json`, any number of them, also from files with `@` |
+| Uploads | `-T` with a file, which becomes the last part of a URL that ends with `/`; with `--path-as-is`, `-T` and `--url-query` are rejected, because curl then normalizes the path anyway |
 | Forms | `-F` with text, files (`@`, `<`), `;type=` and `;filename=`; `--form-string` |
 | Authentication | Basic (`-u`), bearer tokens (`--oauth2-bearer`) |
 | How it is sent | `-L`, `--max-redirs`, `-k`, `-f`, `-m`, `--compressed` |

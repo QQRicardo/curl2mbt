@@ -75,6 +75,8 @@ pub fn RequestPlan::to_json(self : RequestPlan) -> Json {
   match self.body {
     Some(Data(value)) =>
       out["body"] = Json::object({ "data": value.to_json_value() })
+    Some(Upload(path)) =>
+      out["body"] = Json::object({ "upload": Json::string(path) })
     Some(Multipart(parts)) =>
       out["body"] = Json::object({
         "multipart": Json::array(
@@ -376,11 +378,18 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
   let body = match plan.fields.get("body") {
     None => None
     Some(json) => {
-      let body = Fields::new("body", json, ["data", "multipart"])
+      let body = Fields::new("body", json, ["data", "multipart", "upload"])
       if body.fields.length() != 1 {
-        bad_plan("body", "must have exactly one of data and multipart")
+        bad_plan("body", "must have exactly one of data, multipart and upload")
       }
       match body.fields.get("multipart") {
+        None if body.fields.contains("upload") => {
+          let path = well_formed(body.at("upload"), body.string("upload"))
+          if path is ("" | "-") || path.contains("\u0000") {
+            bad_plan(body.at("upload"), "is not the name of a file")
+          }
+          Some(Upload(path))
+        }
         None => Some(Data(body.value("data")))
         Some(Array([_, ..] as items)) => {
           if headers

@@ -170,7 +170,9 @@ fn Settings::build(self : Settings) -> RequestPlan? {
     )
   }
   self.check_form()
+  self.check_upload()
   let body = match self.data {
+    _ if self.upload is Some((path, _)) => Some(Upload(path))
     _ if !self.parts.is_empty() => Some(Multipart(self.parts))
     Some(data) if !self.get => Some(Data(data))
     _ => None
@@ -192,6 +194,8 @@ fn Settings::build(self : Settings) -> RequestPlan? {
     None =>
       if self.head is Some(_) {
         "HEAD"
+      } else if body is Some(Upload(_)) {
+        "PUT"
       } else if body is Some(_) {
         "POST"
       } else {
@@ -237,7 +241,7 @@ fn Settings::build(self : Settings) -> RequestPlan? {
   Some({
     http_method,
     explicit_method: self.request is Some(_),
-    url: parsed.url,
+    url: self.complete_url(parsed.url),
     headers: self.headers(body, range),
     omit_user_agent: if self.has_line("User-Agent") {
       !self.header_lines

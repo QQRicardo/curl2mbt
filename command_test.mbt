@@ -159,7 +159,7 @@ test "variables" {
 test "all errors are reported, in order" {
   inspect(
     findings(
-      "curl -T f   --digest -X 'A B' 'http://h/a b' extra -H 'bad name: 1'",
+      "curl -K c   --digest -X 'A B' 'http://h/a b' extra -H 'bad name: 1'",
     ),
     content="unsupported-option@5-7 unsupported-option@12-20 bad-method@24-29 bad-url@30-44 several-urls@45-50 bad-header-name@54-67",
   )
