@@ -118,10 +118,19 @@ pub struct RequestPlan {
   output_file : String?
   create_dirs : Bool
   max_time_ms : Int32?
+  retry : Retry?
 }
 pub fn RequestPlan::emit(Self, target? : Target, secrets? : Secrets) -> Emitted raise EmitError
 pub fn RequestPlan::from_json(@json.Json) -> Self raise PlanError
 pub fn RequestPlan::to_json(Self) -> @json.Json
+
+#derive(Eq, @debug.Debug)
+pub struct Retry {
+  count : Int32
+  delay_ms : Int32?
+  max_time_ms : Int32?
+  all_errors : Bool
+}
 
 #derive(Eq, @debug.Debug)
 pub(all) enum Secrets {

@@ -7,7 +7,7 @@ test "plans survive JSON" {
       "curl -u \"$U:$P\" --data-raw \"$A b $C\" -H \"X: $D\" h", "curl -d $'\\xff\\xfe' -b 'a=b' h",
       "curl -H 'Host: x' -H 'Accept:' -H 'E;' -H 'D: 1' -H 'd: 2' h", "curl -d 'é 😀' h",
       "curl -g 'h/{a}?[b]'", "curl --path-as-is h/../a", "curl -T f h/", "curl --create-dirs -o d/f h",
-      "curl --fail-with-body -O h/x/y",
+      "curl --fail-with-body -O h/x/y", "curl --retry 2 h", "curl --retry 1 --retry-delay 2 --retry-max-time 3.5 --retry-all-errors h",
     ] {
     let plan = @curl2mbt.parse(text).plan
     let json = plan.to_json().stringify()
@@ -150,5 +150,33 @@ test "JSON that is not a plan" {
   inspect(
     problem(plan_json("[],\"future\":1")),
     content=": has a field this version does not know",
+  )
+}
+
+///|
+test "JSON with retries and outputs that do not fit" {
+  inspect(
+    problem(plan_json("[],\"retry\":{}")),
+    content="retry.count: must be a whole number from 1 on",
+  )
+  inspect(
+    problem(plan_json("[],\"retry\":{\"count\":1,\"x\":1}")),
+    content="retry: has a field this version does not know",
+  )
+  inspect(
+    problem(plan_json("[],\"retry\":{\"count\":1,\"delay_ms\":0}")),
+    content="retry.delay_ms: must be a whole number from 1 on",
+  )
+  inspect(
+    problem(plan_json("[],\"fail_with_body\":true")),
+    content="fail_with_body: needs fail_on_error",
+  )
+  inspect(
+    problem(plan_json("[],\"output_file\":\"-\"")),
+    content="output_file: is not the name of a file",
+  )
+  inspect(
+    problem(plan_json("[],\"create_dirs\":true")),
+    content="create_dirs: needs output_file",
   )
 }

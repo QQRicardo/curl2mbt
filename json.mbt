@@ -110,6 +110,21 @@ pub fn RequestPlan::to_json(self : RequestPlan) -> Json {
     out["output_file"] = Json::string(path)
   }
   flag("create_dirs", self.create_dirs)
+  if self.retry is Some(retry) {
+    let fields : Map[String, Json] = {
+      "count": Json::number(retry.count.to_double()),
+    }
+    if retry.delay_ms is Some(ms) {
+      fields["delay_ms"] = Json::number(ms.to_double())
+    }
+    if retry.max_time_ms is Some(ms) {
+      fields["max_time_ms"] = Json::number(ms.to_double())
+    }
+    if retry.all_errors {
+      fields["all_errors"] = Json::boolean(true)
+    }
+    out["retry"] = Json::object(fields)
+  }
   if self.max_time_ms is Some(ms) {
     out["max_time_ms"] = Json::number(ms.to_double())
   }
@@ -320,7 +335,7 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
     "version", "method", "explicit_method", "url", "headers", "omit_user_agent",
     "auth", "body", "compressed", "follow_redirects", "max_redirects", "cookie_engine",
     "insecure", "fail_on_error", "fail_with_body", "output_file", "create_dirs",
-    "max_time_ms",
+    "max_time_ms", "retry",
   ])
   if plan.integer("version", min=1) != Some(plan_version) {
     bad_plan("version", "must be \{plan_version}")
@@ -398,6 +413,23 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
   if create_dirs && output_file is None {
     bad_plan("create_dirs", "needs output_file")
   }
+  let retry = match plan.fields.get("retry") {
+    None => None
+    Some(json) => {
+      let retry = Fields::new("retry", json, [
+        "count", "delay_ms", "max_time_ms", "all_errors",
+      ])
+      guard retry.integer("count", min=1) is Some(count) else {
+        bad_plan("retry.count", "must be a whole number from 1 on")
+      }
+      Some(Retry::{
+        count,
+        delay_ms: retry.integer("delay_ms", min=1),
+        max_time_ms: retry.integer("max_time_ms", min=1),
+        all_errors: retry.flag("all_errors"),
+      })
+    }
+  }
   let body = match plan.fields.get("body") {
     None => None
     Some(json) => {
@@ -450,5 +482,6 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
     output_file,
     create_dirs,
     max_time_ms: plan.integer("max_time_ms", min=1),
+    retry,
   }
 }

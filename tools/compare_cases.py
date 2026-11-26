@@ -227,6 +227,9 @@ ARGV_CASES = [("same", case) for case in [
     ["--oauth2-bearer", "tok", "-H", "Authorization: X", U],
     # Options that do not change the request
     ["--fail", "-L", "-k", "-v", "--no-progress-meter", "-m", "3.5", U],
+    ["--retry", "2", "--retry-delay", "1.5", "--retry-max-time", "9", "--retry-all-errors", U],
+    ["--retry", "0", "--retry-delay", "1", U],
+    ["--retry-connrefused", "--retry-all-errors", "--retry", "1", U],
     ["-sSf", "--http1.1", "--no-buffer", "--no-compressed", U],
 ]] + [
     (rejected("bad-url"), [U + "/a b"]),
@@ -328,6 +331,9 @@ ARGV_CASES = [("same", case) for case in [
     (rejected("unsupported-value"), ["-e", "r;auto", U]),
     (rejected("unsupported-value"), ["-r", "x", U]),
     (rejected("unsupported-value"), ["-m", "x", U]),
+    (rejected("unsupported-value"), ["--retry", "-1", U]),
+    (rejected("unsupported-value"), ["--retry-delay", "-1", U]),
+    (rejected("unsupported-option"), ["--retry", "3", "--retry-connrefused", U]),
     (rejected("unknown-option"), ["--hea", U]),
     (rejected("unknown-option"), ["--no-header", U]),
     (rejected("unknown-option", "no-url"), ["-"]),

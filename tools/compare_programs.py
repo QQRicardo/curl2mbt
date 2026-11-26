@@ -168,6 +168,28 @@ CASES = [
     ["--remote-name-all", "-o", "x", "U/y"],
     ["--remote-name-all", "--no-remote-name", "U/y"],
     ["-O", "--no-remote-name", "U/y"],
+    # Retries
+    ["--retry", "2", "--retry-delay", "0.2", "U/flaky/503/1"],
+    ["--retry", "1", "--retry-delay", "0.2", "U/flaky/503/3"],
+    ["--retry", "2", "--retry-delay", "0.2", "-o", "out", "U/flaky/429/1"],
+    ["--retry", "1", "--retry-delay", "0.2", "-o", "out", "U/flaky/408/3"],
+    ["--retry", "2", "--retry-delay", "0.2", "-f", "U/flaky/500/1"],
+    ["--retry", "1", "--retry-delay", "0.2", "-f", "-o", "out", "U/flaky/502/5"],
+    ["--retry", "1", "--retry-delay", "0.2", "--fail-with-body", "U/flaky/504/5"],
+    ["--retry", "1", "--retry-delay", "0.2", "U/flaky/522/1"],
+    ["--retry", "1", "--retry-delay", "0.2", "U/flaky/524/1"],
+    ["--retry", "1", "--retry-delay", "0.2", "U/flaky/501/1"],
+    ["--retry", "1", "--retry-delay", "0.2", "U/flaky/404/1"],
+    ["--retry", "1", "--retry-delay", "0.2", "--retry-all-errors", "-f", "U/flaky/404/1"],
+    ["--retry", "1", "--retry-delay", "0.2", "--retry-all-errors", "U/flaky/404/1"],
+    ["--retry", "2", "U/flaky/503/1"],
+    ["--retry", "1", "--retry-delay", "0.2", "U/flaky/503/1?ra=1"],
+    ["--retry", "3", "--retry-delay", "0.4", "--retry-max-time", "0.6", "U/flaky/503/9"],
+    ["--retry", "1", "--retry-delay", "0.2", "-L", "U/r/302?to=/flaky/503/1"],
+    ["--retry", "1", "--retry-delay", "0.2", "-d", "x", "U/flaky/503/1"],
+    ["--retry", "1", "--retry-delay", "0.2", "-m", "0.5", "U/slow"],
+    ["--retry", "1", "--retry-delay", "0.2", "--retry-all-errors", "-m", "0.5", "U/slow"],
+    ["--retry", "0", "U/flaky/503/1"],
     "curl U --form-string \"a=$TOKEN\" --form-string 'b=x'\"$A\"",
     "curl U --data-raw \"$A\" ",
     "curl U -d \"x$A\" -d @f",
@@ -191,6 +213,8 @@ CASES = [
     (["http://[::1]/"], ["unsupported-host"]),
     (["-d", "@-", "U"], ["file-not-supported"]),
     (["-o", "", "U"], ["unsupported-value"]),
+    (["--retry", "1", "--retry-connrefused", "U"], ["unsupported-option"]),
+    (["--retry", "1.5", "U"], ["unsupported-value"]),
     (["-J", "-O", "U"], ["unsupported-option"]),
     (["--no-clobber", "-o", "old", "U"], ["unsupported-option"]),
     ("curl U -d $'\\xff\\x00y'", ["shell-syntax"]),
@@ -253,6 +277,14 @@ def answer(data):
         for pair in parts.query.split("&"):
             if pair.startswith("to="):
                 fields.append("Location: " + urllib.parse.unquote(pair[3:]))
+    elif parts.path.startswith("/flaky/"):
+        # Fails the first times it is asked for.
+        code, times = parts.path.split("/")[2:4]
+        seen = sum(1 for _, d in REQUESTS if d.split(b" ", 2)[1] == target)
+        status = int(code) if seen <= int(times) else 200
+        body = b"attempt %d\n" % seen
+        if "ra=" in parts.query:
+            fields.append("Retry-After: " + parts.query.split("ra=")[1])
     elif parts.path == "/loop":
         status, fields = 302, ["Location: /loop"]
     elif parts.path.startswith("/status/"):

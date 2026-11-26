@@ -158,6 +158,7 @@ dependency and works on every backend; the programs run on native and wasm.
 | Forms | `-F` with text, files (`@`, `<`), `;type=` and `;filename=`; `--form-string` |
 | Authentication | Basic (`-u`), bearer tokens (`--oauth2-bearer`) |
 | How it is sent | `-L`, `--max-redirs`, `-k`, `-f`, `--fail-with-body`, `-m`, `--compressed` |
+| Retries | `--retry`, `--retry-delay`, `--retry-max-time`, `--retry-all-errors`; `--retry-connrefused` only together with `--retry-all-errors` |
 | Where the response goes | `-o`, `-O`, `--remote-name-all`, `--output-dir`, `--create-dirs`; the first of `-o` and `-O` counts, and a later one is reported |
 | Reported as without effect on the request | options about headers in the output, progress and connection reuse |
 
@@ -185,6 +186,13 @@ A program writes the body of the response to the standard output, as curl does,
 or to the file that `-o` or `-O` names, which it replaces. With `-f` a status of
 400 or more ends the program before anything is written; with `--fail-with-body`
 after the body is written. `-i` and `-I` do not put the header lines in the file.
+
+With `--retry` it sends the request again after a timeout of `-m`, or after a
+status of 408, 429, 500, 502, 503, 504, 522 or 524, as curl does: it waits one
+second, twice as long each time, or what `--retry-delay` says, or longer if
+`Retry-After` asks for it in seconds; a date there ends the program with an
+error. Like curl, it writes the body of each attempt to the standard output, and
+only the last one stays in a file. `-m` limits each attempt.
 Files that the command names are read when the program runs, relative to where
 it runs, and held in memory. The boundary of a form is one that occurs in none of
 its parts.

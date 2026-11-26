@@ -72,8 +72,28 @@ pub struct RequestPlan {
   output_file : String?
   /// `--create-dirs`: create the directories of `output_file`.
   create_dirs : Bool
-  /// `-m`: the time the whole request may take.
+  /// `-m`: the time each attempt may take.
   max_time_ms : Int32?
+  /// `--retry` and the options that go with it.
+  retry : Retry?
+}
+
+///|
+/// When a request is sent again, as `--retry` asks: after a timeout, or a
+/// status of 408, 429, 500, 502, 503, 504, 522 or 524.
+#derive(Eq, Debug)
+pub struct Retry {
+  /// How many times the request may be sent again; at least 1.
+  count : Int32
+  /// `--retry-delay`: the pause before each retry. `None` is the pause of
+  /// curl: one second, twice as long each time, up to ten minutes. A longer
+  /// pause that `Retry-After` asks for wins.
+  delay_ms : Int32?
+  /// `--retry-max-time`: no retry after this much time from the start.
+  max_time_ms : Int32?
+  /// `--retry-all-errors`: every error is retried, and with `-f` every
+  /// status of 400 or more.
+  all_errors : Bool
 }
 
 ///|

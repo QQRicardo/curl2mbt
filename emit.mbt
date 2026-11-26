@@ -906,15 +906,31 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
   }
   lines.append(body_lines)
   lines.append(request_lines)
-  lines.append(["}", "", "///|", "async fn main {"])
-  match plan.max_time_ms {
+  lines.push("}")
+  let attempt = match plan.max_time_ms {
     Some(ms) => {
       self.import_package("moonbitlang/async")
-      lines.push(
-        "  let (response, body) = @async.with_timeout(\{ms}, send_request)",
-      )
+      "@async.with_timeout(\{ms}, send_request)"
     }
-    None => lines.push("  let (response, body) = send_request()")
+    None => "send_request()"
+  }
+  match plan.retry {
+    None =>
+      lines.append([
+        "",
+        "///|",
+        "async fn main {",
+        "  let (response, body) = \{attempt}",
+      ])
+    Some(retry) => {
+      let call = self.retry_code(retry, attempt, lines)
+      lines.append([
+        "",
+        "///|",
+        "async fn main {",
+        "  let (response, body) = \{call}",
+      ])
+    }
   }
   let check = [
     "  if response.code >= 400 {", "    fail(\"HTTP status \\{response.code}\")",
@@ -925,23 +941,7 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
   } else if !plan.fail_on_error {
     lines.push("  ignore(response)")
   }
-  match plan.output_file {
-    None => {
-      self.import_package("moonbitlang/async/stdio")
-      lines.push("  @stdio.stdout.write(body)")
-    }
-    Some(path) => {
-      self.import_package("moonbitlang/async/fs")
-      if plan.create_dirs && parent_directory(path) is Some(directory) {
-        lines.push(
-          "  @fs.mkdir(\"\{escape_text(directory)}\", recursive=true, allow_exist=true)",
-        )
-      }
-      lines.push(
-        "  @fs.write_file(\"\{escape_text(path)}\", body, create_mode=CreateOrTruncate)",
-      )
-    }
-  }
+  lines.append(self.output_statements("  "))
   if plan.fail_with_body {
     lines.append(check)
   }
@@ -976,5 +976,138 @@ pub fn RequestPlan::emit(
   }
   match target {
     Async => emitter.emit(secrets)
+  }
+}
+
+///|
+/// The statements that write `body` where the response goes.
+fn Emitter::output_statements(self : Emitter, indent : String) -> Array[String] {
+  match self.plan.output_file {
+    None => {
+      self.import_package("moonbitlang/async/stdio")
+      ["\{indent}@stdio.stdout.write(body)"]
+    }
+    Some(path) => {
+      self.import_package("moonbitlang/async/fs")
+      let out = []
+      if self.plan.create_dirs && parent_directory(path) is Some(directory) {
+        out.push(
+          "\{indent}@fs.mkdir(\"\{escape_text(directory)}\", recursive=true, allow_exist=true)",
+        )
+      }
+      out.push(
+        "\{indent}@fs.write_file(\"\{escape_text(path)}\", body, create_mode=CreateOrTruncate)",
+      )
+      out
+    }
+  }
+}
+
+///|
+/// The code that sends the request again as `retry` asks, in
+/// `send_with_retries`, and the call of it.
+fn Emitter::retry_code(
+  self : Emitter,
+  retry : Retry,
+  attempt : String,
+  lines : Array[String],
+) -> String {
+  let plan = self.plan
+  self.import_package("moonbitlang/async")
+  let start = retry.max_time_ms is Some(_)
+  if start {
+    self.import_package("moonbitlang/core/env")
+  }
+  lines.append([
+    "", "///|", "/// The retries that are left, and the pause before the next one.",
+    "struct Retries {", "  mut left : Int",
+  ])
+  // A pause from --retry-delay stays the same.
+  lines.push(
+    if retry.delay_ms is None {
+      "  mut pause : Int"
+    } else {
+      "  pause : Int"
+    },
+  )
+  if start {
+    lines.push("  start : UInt64")
+  }
+  lines.append([
+    "}", "", "///|", "/// The pause before the next retry, or `None` if there is none.",
+    "/// `retry_after` is the pause that the server asks for.", "fn Retries::next(self : Retries, retry_after : Int?) -> Int? {",
+    "  if self.left == 0 {", "    return None", "  }", "  let mut pause = self.pause",
+    "  if retry_after is Some(ms) && ms > pause {", "    pause = ms", "  }",
+  ])
+  if retry.max_time_ms is Some(max) {
+    lines.append([
+      "  let elapsed = (@env.now() - self.start).to_int()",
+      "  if elapsed >= \{max} || (retry_after is Some(ms) && elapsed + ms > \{max}) {",
+      "    return None",
+      "  }",
+      "  if pause > \{max} - elapsed {",
+      "    pause = \{max} - elapsed",
+      "  }",
+    ])
+  }
+  lines.push("  self.left -= 1")
+  if retry.delay_ms is None {
+    lines.append([
+      "  self.pause = if self.pause >= 300000 { 600000 } else { self.pause * 2 }",
+    ])
+  }
+  lines.append([
+    "  Some(pause)", "}", "", "///|", "/// The pause that `Retry-After` asks for, if it is a number of seconds.",
+    "fn retry_after(response : @http.Response) -> Int? raise {", "  guard response.headers.get(\"Retry-After\") is Some(text) else {",
+    "    return None", "  }", "  let mut seconds = 0", "  for char in text {", "    guard char is ('0'..<='9') else {",
+    "      fail(\"a Retry-After that is not a number of seconds is not supported: \\{text}\")",
+    "    }", "    seconds = seconds * 10 + (char.to_int() - '0'.to_int())", "    if seconds > 999999 {",
+    "      seconds = 999999", "    }", "  }", "  if text == \"\" {", "    None",
+    "  } else {", "    Some(seconds * 1000)", "  }", "}", "", "///|", "/// Sends the request, and again as `--retry` asks.",
+    "async fn send_with_retries(retries : Retries) -> (@http.Response, &@io.Data) {",
+  ])
+  let errors = if retry.all_errors {
+    Some("_")
+  } else if plan.max_time_ms is Some(_) {
+    Some("@async.TimeoutError")
+  } else {
+    None
+  }
+  match errors {
+    Some(pattern) =>
+      lines.append([
+        "  let (response, body) = \{attempt} catch {",
+        "    \{pattern} if retries.next(None) is Some(pause) => {",
+        "      @async.sleep(pause)",
+        "      return send_with_retries(retries)",
+        "    }",
+        "    error => raise error",
+        "  }",
+      ])
+    None => lines.push("  let (response, body) = \{attempt}")
+  }
+  let codes = "response.code is (408 | 429 | 500 | 502 | 503 | 504 | 522 | 524)"
+  let codes = if retry.all_errors && plan.fail_on_error {
+    "(\{codes} || response.code >= 400)"
+  } else {
+    codes
+  }
+  lines.append([
+    "  if \{codes} &&",
+    "    retries.next(retry_after(response)) is Some(pause) {",
+  ])
+  // Every status that is retried is 400 or more, so -f writes nothing.
+  if !plan.fail_on_error || plan.fail_with_body {
+    lines.append(self.output_statements("    "))
+  }
+  lines.append([
+    "    @async.sleep(pause)", "    return send_with_retries(retries)", "  }", "  (response, body)",
+    "}",
+  ])
+  let pause = retry.delay_ms.unwrap_or(1000)
+  if start {
+    "send_with_retries(Retries::{ left: \{retry.count}, pause: \{pause}, start: @env.now() })"
+  } else {
+    "send_with_retries(Retries::{ left: \{retry.count}, pause: \{pause} })"
   }
 }

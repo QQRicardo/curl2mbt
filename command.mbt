@@ -91,6 +91,12 @@ priv struct Settings {
   mut insecure : Bool
   mut fail : Bool
   mut max_time_ms : Int32?
+  mut retry_count : (Int32, Location)?
+  mut retry_delay_ms : Int32?
+  mut retry_max_time_ms : Int32?
+  mut retry_all_errors : Bool
+  mut retry_connrefused : Location?
+  mut retry_details : Location?
   mut output : (OutputName, Location)?
   mut remote_name_all : Bool
   mut output_dir : String?
@@ -372,6 +378,12 @@ fn Settings::new(report : Report, windows~ : Bool) -> Settings {
     insecure: false,
     fail: false,
     max_time_ms: None,
+    retry_count: None,
+    retry_delay_ms: None,
+    retry_max_time_ms: None,
+    retry_all_errors: false,
+    retry_connrefused: None,
+    retry_details: None,
     output: None,
     remote_name_all: false,
     output_dir: None,
@@ -522,6 +534,17 @@ fn Settings::apply(self : Settings, option : Occurrence) -> Unit {
       }
     "create-dirs" => self.create_dirs = option.on
     "max-time" => self.apply_max_time(option)
+    "retry" | "retry-delay" | "retry-max-time" => self.apply_retry(option)
+    "retry-all-errors" => {
+      self.retry_all_errors = option.on
+      self.retry_details = Some(option.location)
+    }
+    "retry-connrefused" =>
+      self.retry_connrefused = if option.on {
+        Some(option.location)
+      } else {
+        None
+      }
     "globoff" => self.globoff = option.on
     "path-as-is" => self.path_as_is = option.on
     _ =>
