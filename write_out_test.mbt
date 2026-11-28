@@ -46,7 +46,9 @@ test "texts of -w that are rejected" {
   assert_eq(write_out_errors(["-w", "%{time_total}"]), ["unsupported-value"])
   assert_eq(write_out_errors(["-w", "%{nope}"]), ["unsupported-value"])
   assert_eq(write_out_errors(["-w", "%{HTTP_CODE}"]), ["unsupported-value"])
-  assert_eq(write_out_errors(["-w", "%header{x-a}"]), ["unsupported-value"])
+  assert_eq(write_out_errors(["-w", "%header{x-a}"]), [])
+  assert_eq(write_out_errors(["-w", "%header{x a}"]), ["unsupported-value"])
+  assert_eq(write_out_errors(["-w", "%header{x-a"]), ["unsupported-value"])
   assert_eq(write_out_errors(["-w", "%output{f}"]), ["unsupported-value"])
   assert_eq(write_out_errors(["-w", "@f"]), ["file-not-supported"])
   // curl writes the fragment, which the plan leaves out.

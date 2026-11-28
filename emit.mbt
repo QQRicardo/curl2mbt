@@ -863,6 +863,11 @@ fn Emitter::request_statements(
     if fields.contains("url") {
       out.push("      transfer.url = origin + path")
     }
+    if fields.contains("scheme") {
+      out.push(
+        "      transfer.scheme = if origin.has_prefix(\"https:\") { \"https\" } else { \"http\" }",
+      )
+    }
     if fields.contains("verb") {
       out.push("      transfer.verb = \{final_method}")
     }
@@ -1012,9 +1017,14 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
       lines.append(entry.1.split("\n").map(line => line.to_owned()).collect())
     }
   }
-  if plan.follow_redirects {
+  if plan.follow_redirects || self.writes("redirect_url") {
     lines.append(
       redirect_code.split("\n").map(line => line.to_owned()).collect(),
+    )
+  }
+  if !plan.follow_redirects && self.writes("redirect_url") {
+    lines.append(
+      redirect_url_code.split("\n").map(line => line.to_owned()).collect(),
     )
   }
   lines.append(self.transfer_code())
@@ -1212,7 +1222,8 @@ fn Emitter::output_statements(self : Emitter, indent : String) -> Array[String] 
         )
       }
       if self.plan.no_clobber {
-        let keep = if self.plan.remove_on_error && self.plan.fail_with_body {
+        let keep = if (self.plan.remove_on_error && self.plan.fail_with_body) ||
+          self.writes("filename_effective") {
           "let written = "
         } else {
           "ignore("
@@ -1341,6 +1352,34 @@ fn Emitter::retry_code(
 }
 
 ///|
+/// Whether `-w` writes `%{name}`.
+fn Emitter::writes(self : Emitter, name : String) -> Bool {
+  self.plan.write_out is Some(text) && writes_variable(text, name)
+}
+
+///|
+/// How a program finds what `%{redirect_url}` of `-w` writes.
+let redirect_url_code : String =
+  #|///|
+  #|/// Where the redirect of `response` to a request for `path` at `origin`
+  #|/// leads, with its fragment, as %{redirect_url} of -w writes it.
+  #|fn redirect_url(response : @http.Response, origin : String, path : String) -> String raise {
+  #|  guard response.code is (300..<400) &&
+  #|    response.headers.get("Location") is Some(location) &&
+  #|    location.trim() != "" else {
+  #|    return ""
+  #|  }
+  #|  let location = location.trim().to_owned()
+  #|  let fragment = match location.find("#") {
+  #|    Some(at) => location[at:].to_owned()
+  #|    None => ""
+  #|  }
+  #|  let (origin, path) = redirect_target(origin, path, location)
+  #|  origin + path + fragment
+  #|}
+  #|
+
+///|
 /// The fields of `Transfer` that `-w` needs: where a redirected request
 /// went in the end.
 fn Emitter::transfer_fields(self : Emitter) -> Array[String] {
@@ -1355,6 +1394,7 @@ fn Emitter::transfer_fields(self : Emitter) -> Array[String] {
       ("num_redirects", "redirects"),
       ("url_effective", "url"),
       ("method", "verb"),
+      ("scheme", "scheme"),
     ] {
     let (variable, field) = variable_field
     if parts.iter().any(part => part is Variable(name) && name == variable) {
@@ -1431,6 +1471,12 @@ fn Emitter::write_out_statements(
         flush()
         stream = "stdout"
       }
+      // The first value, where curl writes the first field of the name.
+      Header(name) => {
+        let variable = "header_\{lets.length()}"
+        lets[variable] = "response.headers.get(\"\{name}\").unwrap_or(\"\")"
+        pending.write_string("\\{\{variable}}")
+      }
       Variable(name) => {
         let tracked = self.transfer_fields()
         let expression = match name {
@@ -1447,6 +1493,14 @@ fn Emitter::write_out_statements(
             Some("transfer.redirects")
           "url_effective" if tracked.contains("url") => Some("transfer.url")
           "method" if tracked.contains("verb") => Some("transfer.verb")
+          "scheme" if tracked.contains("scheme") => Some("transfer.scheme")
+          "filename_effective" if plan.no_clobber && body_written =>
+            Some("written")
+          "redirect_url" if !plan.follow_redirects => {
+            let origin = "\{plan.url.scheme}://\{plan.url.authority()}"
+            lets["redirect_url"] = "redirect_url(response, \"\{escape_text(origin)}\", \"\{escape_text(plan.url.target())}\")"
+            Some("redirect_url")
+          }
           _ => None
         }
         match expression {
@@ -1455,8 +1509,12 @@ fn Emitter::write_out_statements(
             pending.write_string(
               escape_text(
                 match name {
-                  "size_download" | "num_redirects" => "0"
+                  "size_download" | "num_redirects" | "urlnum" => "0"
                   "url_effective" => plan.url.to_string()
+                  "scheme" => plan.url.scheme
+                  "filename_effective" => plan.output_file.unwrap_or("")
+                  // curl has followed it then.
+                  "redirect_url" => ""
                   _ => plan.http_method
                 },
               ),

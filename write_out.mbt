@@ -5,6 +5,8 @@ priv enum WriteOutPart {
   Text(String)
   /// What `%{name}` stands for.
   Variable(String)
+  /// `%header{name}`: the value of that field of the last response.
+  Header(String)
   /// `%{stderr}` and `%{stdout}`: where what follows goes.
   ToStderr
   ToStdout
@@ -15,14 +17,18 @@ priv enum WriteOutPart {
 /// the connection went.
 let write_out_variables : Array[String] = [
   "http_code", "response_code", "content_type", "size_download", "num_redirects",
-  "url_effective", "method",
+  "url_effective", "method", "scheme", "urlnum", "filename_effective", "redirect_url",
 ]
 
 ///|
-/// Whether `header{` or `output{` starts at `at`.
-fn is_unsupported_function(chars : Array[Char], at : Int32) -> Bool {
+/// The function, `header` or `output`, whose `{` follows at `at`.
+fn function_at(chars : Array[Char], at : Int32) -> String? {
   let end = (at + 7).min(chars.length())
-  String::from_array(chars[at:end]) is ("header{" | "output{")
+  match String::from_array(chars[at:end]) {
+    "header{" => Some("header")
+    "output{" => Some("output")
+    _ => None
+  }
 }
 
 ///|
@@ -83,8 +89,27 @@ fn parse_write_out(text : String) -> Result[Array[WriteOutPart], String] {
         }
         i = close + 1
       }
-      ('%', Some(_)) if is_unsupported_function(chars, i + 1) =>
-        return Err("%header{...} and %output{...} of -w are not supported")
+      ('%', Some(_)) if function_at(chars, i + 1) is Some(function) => {
+        let close = for j = i + 8; j < chars.length(); j = j + 1 {
+          if chars[j] == '}' {
+            break Some(j)
+          }
+        } nobreak {
+          None
+        }
+        guard function == "header" && close is Some(close) else {
+          return Err(
+            "%output{...} of -w, and %header{ without }, are not supported",
+          )
+        }
+        let name = String::from_array(chars[i + 8:close])
+        guard is_token(name) else {
+          return Err("%header{...} of -w must name a header field")
+        }
+        flush()
+        parts.push(Header(name))
+        i = close + 1
+      }
       ('%' | '\\', Some(other)) => {
         if char == '\\' && other is ('n' | 'r' | 't') {
           pending.write_char(
@@ -129,7 +154,7 @@ fn Settings::apply_write_out(self : Settings, option : Occurrence) -> Unit {
         option,
         "unsupported-value",
         message,
-        help="programs write %{http_code}, %{response_code}, %{content_type}, %{size_download}, %{num_redirects}, %{url_effective}, %{method}, %{stderr} and %{stdout}",
+        help="programs write %{http_code}, %{response_code}, %{content_type}, %{size_download}, %{num_redirects}, %{url_effective}, %{method}, %{scheme}, %{urlnum}, %{filename_effective}, %{redirect_url}, %header{name}, %{stderr} and %{stdout}",
       )
   }
 }

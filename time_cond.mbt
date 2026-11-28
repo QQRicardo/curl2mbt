@@ -392,6 +392,15 @@ fn Settings::check_time_cond(self : Settings) -> Unit {
       location~,
     )
   }
+  if self.no_clobber is Some(_) &&
+    self.write_out is Some(text) &&
+    writes_variable(text, "filename_effective") {
+    self.report.error(
+      "conflicting-options",
+      "-z together with --no-clobber and %{filename_effective} of -w is not supported",
+      location~,
+    )
+  }
   if condition.time is FileTime(name) {
     self.report.add(
       Note,

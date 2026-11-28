@@ -200,7 +200,7 @@ dependency and works on every backend; the programs run on native and wasm.
 | Where the response goes | `-o`, `-O`, `--remote-name-all`, `--output-dir`, `--create-dirs`, `--no-clobber`, `--remove-on-error`, `--max-filesize`; the first of `-o` and `-O` counts, and a later one is reported; `--no-clobber` and `--remove-on-error` not together with `--retry` |
 | ETags | `--etag-compare` and `--etag-save` with the name of a file |
 | Time conditions | `-z` with a date, read with the rules of curl, or the name of a file, after `-`, `=` or `+` |
-| What is written after the body | `-w` with `%{http_code}`, `%{response_code}`, `%{content_type}`, `%{size_download}`, `%{num_redirects}`, `%{url_effective}`, `%{method}`, `%{stderr}` and `%{stdout}`, `%%` and the escapes of curl |
+| What is written after the body | `-w` with `%{http_code}`, `%{response_code}`, `%{content_type}`, `%{size_download}`, `%{num_redirects}`, `%{url_effective}`, `%{method}`, `%{scheme}`, `%{urlnum}`, `%{filename_effective}`, `%{redirect_url}`, `%header{name}`, `%{stderr}` and `%{stdout}`, `%%` and the escapes of curl |
 | Variables | `--variable` with `name=value` or `%NAME`, which stays a reference to the environment variable; `--expand-` before any option that takes a value, with `{{name}}` and the functions `trim`, `json`, `url`, `b64` and `64dec` |
 | Reported as without effect on the request | options about headers in the output, progress and connection reuse |
 
@@ -324,6 +324,11 @@ Programs differ from curl in this:
   moonbitlang/async, unless the command sets a User-Agent, and no
   `Proxy-Connection`. On the JavaScript backend moonbitlang/async ignores the
   proxy, so programs with one are for native and wasm.
+- `%header{name}` writes the value of the field, and where the last
+  response has several fields of that name, programs write all their values
+  joined with commas, as moonbitlang/async gives them, where curl writes the
+  first. `%{redirect_url}` ends the program with an error for a redirect
+  that it cannot resolve with certainty.
 - `%{url_effective}` is rejected for a URL with a fragment, and a program
   that writes it stops at a redirect with a fragment, because curl writes the
   fragment.
