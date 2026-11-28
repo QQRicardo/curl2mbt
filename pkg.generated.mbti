@@ -142,6 +142,8 @@ pub struct RequestPlan {
   max_time_ms : Int32?
   connect_timeout_ms : Int32?
   request_target : String?
+  etag_compare : String?
+  etag_save : String?
   retry : Retry?
   proxy : Proxy?
 }

@@ -101,6 +101,8 @@ priv struct Settings {
   mut max_time_ms : Int32?
   mut connect_timeout_ms : Int32?
   mut request_target : (String, Location)?
+  mut etag_compare : (String, Location)?
+  mut etag_save : (String, Location)?
   mut retry_count : (Int32, Location)?
   mut retry_delay_ms : Int32?
   mut retry_max_time_ms : Int32?
@@ -416,6 +418,8 @@ fn Settings::new(report : Report, windows~ : Bool) -> Settings {
     max_time_ms: None,
     connect_timeout_ms: None,
     request_target: None,
+    etag_compare: None,
+    etag_save: None,
     retry_count: None,
     retry_delay_ms: None,
     retry_max_time_ms: None,
@@ -623,6 +627,7 @@ fn Settings::apply(self : Settings, option : Occurrence) -> Unit {
     "max-time" => self.apply_max_time(option)
     "connect-timeout" => self.apply_connect_timeout(option)
     "request-target" => self.apply_request_target(option)
+    "etag-compare" | "etag-save" => self.apply_etag(option)
     "retry" | "retry-delay" | "retry-max-time" => self.apply_retry(option)
     "retry-all-errors" => {
       self.retry_all_errors = option.on

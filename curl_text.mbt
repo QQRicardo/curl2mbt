@@ -264,6 +264,12 @@ fn RequestPlan::curl_arguments(
   if self.max_time_ms is Some(ms) {
     option("-m", Argument::text(seconds_text(ms)))
   }
+  if self.etag_compare is Some(path) {
+    option("--etag-compare", Argument::text(path))
+  }
+  if self.etag_save is Some(path) {
+    option("--etag-save", Argument::text(path))
+  }
   if self.request_target is Some(target) {
     option("--request-target", Argument::text(target))
   }

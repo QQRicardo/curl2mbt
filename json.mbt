@@ -149,6 +149,12 @@ pub fn RequestPlan::to_json(self : RequestPlan) -> Json {
   if self.max_time_ms is Some(ms) {
     out["max_time_ms"] = Json::number(ms.to_double())
   }
+  if self.etag_compare is Some(path) {
+    out["etag_compare"] = Json::string(path)
+  }
+  if self.etag_save is Some(path) {
+    out["etag_save"] = Json::string(path)
+  }
   if self.request_target is Some(target) {
     out["request_target"] = Json::string(target)
   }
@@ -363,7 +369,8 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
     "auth", "body", "compressed", "follow_redirects", "location_trusted", "keep_post",
     "max_redirects", "cookie_engine", "insecure", "fail_on_error", "fail_with_body",
     "output_file", "create_dirs", "max_time_ms", "retry", "write_out", "proxy", "no_clobber",
-    "remove_on_error", "max_filesize", "connect_timeout_ms", "request_target",
+    "remove_on_error", "max_filesize", "connect_timeout_ms", "request_target", "etag_compare",
+    "etag_save",
   ])
   if plan.integer("version", min=1) != Some(plan_version) {
     bad_plan("version", "must be \{plan_version}")
@@ -448,6 +455,19 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
   } else {
     None
   }
+  let etag_file = name => {
+    if plan.fields.contains(name) {
+      let path = well_formed(name, plan.string(name))
+      if path is ("" | "-") || path.contains("\u0000") {
+        bad_plan(name, "is not the name of a file")
+      }
+      Some(path)
+    } else {
+      None
+    }
+  }
+  let etag_compare = etag_file("etag_compare")
+  let etag_save = etag_file("etag_save")
   let create_dirs = plan.flag("create_dirs")
   let no_clobber = plan.flag("no_clobber")
   let remove_on_error = plan.flag("remove_on_error")
@@ -468,8 +488,8 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
       n == n.floor() => Some(n.to_int64())
     Some(_) => bad_plan("max_filesize", "must be a whole number from 1 to 2^53")
   }
-  if create_dirs && output_file is None {
-    bad_plan("create_dirs", "needs output_file")
+  if create_dirs && output_file is None && etag_save is None {
+    bad_plan("create_dirs", "needs output_file or etag_save")
   }
   let write_out = match plan.fields.get("write_out") {
     None => None
@@ -620,6 +640,8 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
     max_time_ms: plan.integer("max_time_ms", min=1),
     connect_timeout_ms: plan.integer("connect_timeout_ms", min=1),
     request_target,
+    etag_compare,
+    etag_save,
     retry,
     write_out,
     proxy,

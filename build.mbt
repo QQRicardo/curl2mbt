@@ -261,6 +261,7 @@ fn Settings::build(self : Settings) -> RequestPlan? {
   let output_file = self.output_file(url)
   let proxy = self.build_proxy(url)
   self.check_output_options(output_file)
+  self.check_etag()
   Some({
     http_method,
     explicit_method: self.request is Some(_),
@@ -285,13 +286,16 @@ fn Settings::build(self : Settings) -> RequestPlan? {
     fail_on_error: self.fail || self.fail_with_body,
     fail_with_body: self.fail_with_body,
     output_file,
-    create_dirs: self.create_dirs && output_file is Some(_),
+    create_dirs: self.create_dirs &&
+    (output_file is Some(_) || self.etag_save is Some(_)),
     no_clobber: self.no_clobber is Some(_) && output_file is Some(_),
     remove_on_error: self.remove_on_error is Some(_) && output_file is Some(_),
     max_filesize: self.max_filesize,
     max_time_ms: self.max_time_ms,
     connect_timeout_ms: self.connect_timeout_ms,
     request_target: self.request_target.map(target => target.0),
+    etag_compare: self.etag_compare.map(entry => entry.0),
+    etag_save: self.etag_save.map(entry => entry.0),
     retry: self.build_retry(),
     write_out: self.write_out,
     proxy,

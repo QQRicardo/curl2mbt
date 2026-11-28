@@ -727,17 +727,26 @@ fn Emitter::request_statements(
     if has_body {
       entries.push(("\"Content-Length\"", "body.length().to_string()"))
     }
-    push_map(
-      out,
-      "  ",
-      "client.request(\{verb}, \{quoted(plan.request_target.unwrap_or(plan.url.target()))}, extra_headers=",
-      entries,
-    )
-    out.push("  })")
+    let target = quoted(plan.request_target.unwrap_or(plan.url.target()))
+    if plan.etag_compare is Some(_) {
+      push_map(out, "  ", "let headers : @http.Headers = ", entries)
+      out.push("  }")
+      out.append(self.etag_header("  "))
+      out.push("  client.request(\{verb}, \{target}, extra_headers=headers)")
+    } else {
+      push_map(
+        out,
+        "  ",
+        "client.request(\{verb}, \{target}, extra_headers=",
+        entries,
+      )
+      out.push("  })")
+    }
     if has_body {
       out.push("  client.write(body)")
     }
     out.push("  let response = client.end_request()")
+    out.append(self.etag_saved("  "))
     out.push("  (response, client.read_all())")
     return out
   }
@@ -780,6 +789,7 @@ fn Emitter::request_statements(
     always.map(entry => (quoted(entry.0.name), entry.1)),
   )
   out.push("    }")
+  out.append(self.etag_header("    "))
   let credentials = headers.filter(entry => is_credential(entry.0))
   if !credentials.is_empty() {
     out.push("    // Credentials are for the first host only.")
@@ -822,6 +832,7 @@ fn Emitter::request_statements(
     out.push("    }")
   }
   out.push("    let response = client.end_request()")
+  out.append(self.etag_saved("    "))
   out.push("    let location = match response.headers.get(\"Location\") {")
   out.push("      Some(location) if response.code is (300..<400) =>")
   out.push("        location.trim().to_owned()")
@@ -1003,9 +1014,27 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
   for name, variable in self.environment {
     lines.push("  let \{variable} = env(\"\{name}\")")
   }
+  if plan.etag_compare is Some(path) {
+    lines.push(
+      "  let if_none_match = etag_to_compare(\"\{escape_text(path)}\")",
+    )
+  }
   lines.append(body_lines)
   lines.append(request_lines)
   lines.push("}")
+  if plan.etag_compare is Some(_) || plan.etag_save is Some(_) {
+    self.import_package("moonbitlang/async/fs")
+  }
+  if plan.etag_compare is Some(_) {
+    lines.append(
+      etag_compare_code.split("\n").map(line => line.to_owned()).collect(),
+    )
+  }
+  if plan.etag_save is Some(_) {
+    lines.append(
+      etag_save_code.split("\n").map(line => line.to_owned()).collect(),
+    )
+  }
   if plan.max_filesize is Some(_) {
     lines.append(
       too_large_code.split("\n").map(line => line.to_owned()).collect(),
@@ -1027,20 +1056,26 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
   }
   match plan.retry {
     None =>
-      lines.append([
-        "",
-        "///|",
-        "async fn main {",
-        "  let (response, body) = \{attempt}",
-      ])
+      lines.append(
+        [
+          "",
+          "///|",
+          "async fn main {",
+          ..self.etag_save_statements(),
+          "  let (response, body) = \{attempt}",
+        ],
+      )
     Some(retry) => {
       let call = self.retry_code(retry, attempt, lines)
-      lines.append([
-        "",
-        "///|",
-        "async fn main {",
-        "  let (response, body) = \{call}",
-      ])
+      lines.append(
+        [
+          "",
+          "///|",
+          "async fn main {",
+          ..self.etag_save_statements(),
+          "  let (response, body) = \{call}",
+        ],
+      )
     }
   }
   let check = [

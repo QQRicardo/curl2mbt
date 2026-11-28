@@ -76,7 +76,8 @@ pub struct RequestPlan {
   /// `-o`, `-O` and `--output-dir`: the file that gets the body of the
   /// response. `None` is the standard output.
   output_file : String?
-  /// `--create-dirs`: create the directories of `output_file`.
+  /// `--create-dirs`: create the directories of `output_file` and
+  /// `etag_save`.
   create_dirs : Bool
   /// `--no-clobber`: if `output_file` exists, write to the first of
   /// `output_file.1` to `output_file.100` that does not.
@@ -98,6 +99,13 @@ pub struct RequestPlan {
   /// `--request-target`: what the request line has instead of the path and
   /// query of `url`, also after redirects. Visible ASCII characters.
   request_target : String?
+  /// `--etag-compare`: the file whose text, without line breaks, goes into
+  /// If-None-Match when the request is made, after the other fields; `""`
+  /// if there is no such file or it is empty.
+  etag_compare : String?
+  /// `--etag-save`: the file that is made before the request and gets the
+  /// ETag of each response with a status from 200 to 399.
+  etag_save : String?
   /// `--retry` and the options that go with it.
   retry : Retry?
   /// `-x`: the proxy that the request goes through, in a tunnel that

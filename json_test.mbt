@@ -177,6 +177,6 @@ test "JSON with retries and outputs that do not fit" {
   )
   inspect(
     problem(plan_json("[],\"create_dirs\":true")),
-    content="create_dirs: needs output_file",
+    content="create_dirs: needs output_file or etag_save",
   )
 }

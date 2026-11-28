@@ -198,6 +198,7 @@ dependency and works on every backend; the programs run on native and wasm.
 | Proxies | `-x` with an http or https proxy, through a tunnel that `CONNECT` makes: for https URLs, and with `-p` for all; `-U`, or the user and password in the proxy URL, which win over `-U` as in curl; `--proxy-basic` |
 | Retries | `--retry`, `--retry-delay`, `--retry-max-time`, `--retry-all-errors`; `--retry-connrefused` only together with `--retry-all-errors` |
 | Where the response goes | `-o`, `-O`, `--remote-name-all`, `--output-dir`, `--create-dirs`, `--no-clobber`, `--remove-on-error`, `--max-filesize`; the first of `-o` and `-O` counts, and a later one is reported; `--no-clobber` and `--remove-on-error` not together with `--retry` |
+| ETags | `--etag-compare` and `--etag-save` with the name of a file |
 | What is written after the body | `-w` with `%{http_code}`, `%{response_code}`, `%{content_type}`, `%{size_download}`, `%{num_redirects}`, `%{url_effective}`, `%{method}`, `%{stderr}` and `%{stdout}`, `%%` and the escapes of curl |
 | Variables | `--variable` with `name=value` or `%NAME`, which stays a reference to the environment variable; `--expand-` before any option that takes a value, with `{{name}}` and the functions `trim`, `json`, `url`, `b64` and `64dec` |
 | Reported as without effect on the request | options about headers in the output, progress and connection reuse |
@@ -270,6 +271,16 @@ redirect: the TCP connection, the `CONNECT` of a proxy and the TLS handshake,
 as curl counts them. A timeout is sent again by `--retry`, as in curl. Without
 the option curl gives up after 300 seconds, and programs wait as long as the
 system does.
+With `--etag-compare` the program reads the file when it runs and sends its
+text, without line breaks, in If-None-Match after the other fields, as curl
+does: `""` if there is no such file or it is empty, and no field if it has only
+line breaks and blanks. A control character in it ends the program with an
+error. With `--etag-save` it makes the file before the request, with the
+directories that `--create-dirs` asks for, and keeps what is in it. After each
+response with a status from 200 to 399, also of a redirect, it writes the ETag
+there, without the blanks around it, and a line break. Where a response has
+several ETag fields, curl writes the last one, and programs all of them, joined
+with commas, as moonbitlang/async gives them.
 Files that the command names are read when the program runs, relative to where
 it runs, and held in memory. The boundary of a form is one that occurs in none of
 its parts.

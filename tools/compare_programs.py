@@ -216,6 +216,31 @@ CASES = [
     ["--retry", "1", "--retry-delay", "0.2", "--connect-timeout", "0.3", "-k", "Z/"],
     ["--connect-timeout", "0", "U/a"],
     (["--connect-timeout", "1e3", "U"], ["unsupported-value"]),
+    # ETags: etag= in the query makes the server send one.
+    ["--etag-compare", "tag", "U"],
+    ["--etag-compare", "tags", "U"],
+    ["--etag-compare", "missing", "U"],
+    ["--etag-compare", "empty", "U"],
+    ["--etag-compare", "blank", "U"],
+    ["-L", "--etag-compare", "tag", "U/r/302?to=V/t"],
+    ["--etag-save", "new", "U/a?etag=%22e1%22"],
+    ["--etag-save", "new", "U/a?etag=%20%20W/%22w%22%20"],
+    ["--etag-save", "new", "U/a"],
+    ["--etag-save", "old", "U/a"],
+    ["--etag-save", "old", "U/status/404?etag=%22no%22"],
+    ["--etag-save", "old", "U/status/304?etag=%22yes%22"],
+    ["--etag-save", "old", "U/status/204?etag=%22yes%22"],
+    ["-f", "--etag-save", "new", "U/status/500?etag=%22no%22"],
+    ["--etag-save", "new", "U/r/302?to=/t&etag=%22r%22"],
+    ["-L", "--etag-save", "new", "U/r/302?to=/t&etag=%22r%22"],
+    ["-L", "--etag-save", "new", "U/r/302?to=/t%3Fetag=%2522t%2522&etag=%22r%22"],
+    ["-I", "--etag-save", "new", "U/a?etag=%22h%22"],
+    ["--etag-save", "nodir/e", "U/a?etag=%22e%22"],
+    ["--create-dirs", "--etag-save", "nodir/e", "U/a?etag=%22e%22"],
+    ["--etag-compare", "tag", "--etag-save", "tag", "U/a?etag=%22t2%22"],
+    ["--retry", "1", "--retry-delay", "0.2", "--etag-save", "new", "U/flaky/503/1?etag=%22f%22"],
+    (["--etag-save", "-", "U"], ["unsupported-value"]),
+    (["--etag-compare", "tag", "-H", "If-None-Match: x", "U"], ["duplicate-header"]),
     # Request targets
     ["-X", "OPTIONS", "--request-target", "*", "U"],
     ["--request-target", "/x?y=1", "-w", "[%{url_effective}]", "U/a?b"],
@@ -457,6 +482,9 @@ def answer(data):
         offered = [l for l in data.split(b"\r\n") if l.lower().startswith(b"accept-encoding:")]
         if offered and b"gzip" in offered[0]:
             fields, body = ["Content-Encoding: gzip"], gzip.compress(body)
+    for pair in parts.query.split("&"):
+        if pair.startswith("etag="):
+            fields.append("ETag: " + urllib.parse.unquote(pair[5:]))
     if method == b"HEAD" or status in (204, 304):
         length, body = len(body), b""
         fields.append("Content-Length: %d" % (0 if status == 204 else length))
@@ -574,7 +602,10 @@ def main():
     failures, programs, rejected = [], [], 0
     files = os.path.join(directory, "files")
     os.mkdir(files)
-    for name, data in (("f", b"a b\r\nc\0d&\xff\n"), ("empty", b"")):
+    for name, data in (
+        ("f", b"a b\r\nc\0d&\xff\n"), ("empty", b""), ("tag", b'"t1"\n'),
+        ("tags", b'"x"\r\n"y"\n'), ("blank", b" \n"),
+    ):
         with open(os.path.join(files, name), "wb") as file:
             file.write(data)
     project = os.path.join(directory, "programs")
