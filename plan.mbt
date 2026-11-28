@@ -95,6 +95,9 @@ pub struct RequestPlan {
   /// `--connect-timeout`: the time that making each connection may take,
   /// with the `CONNECT` of a proxy and the TLS handshake.
   connect_timeout_ms : Int32?
+  /// `--request-target`: what the request line has instead of the path and
+  /// query of `url`, also after redirects. Visible ASCII characters.
+  request_target : String?
   /// `--retry` and the options that go with it.
   retry : Retry?
   /// `-x`: the proxy that the request goes through, in a tunnel that

@@ -216,6 +216,11 @@ CASES = [
     ["--retry", "1", "--retry-delay", "0.2", "--connect-timeout", "0.3", "-k", "Z/"],
     ["--connect-timeout", "0", "U/a"],
     (["--connect-timeout", "1e3", "U"], ["unsupported-value"]),
+    # Request targets
+    ["-X", "OPTIONS", "--request-target", "*", "U"],
+    ["--request-target", "/x?y=1", "-w", "[%{url_effective}]", "U/a?b"],
+    ["-L", "--max-redirs", "2", "--request-target", "/r/302?to=V/t", "-w", "[%{num_redirects}][%{url_effective}]", "U/a"],
+    ["-p", "-x", "P", "--request-target", "/x", "U/a"],
     # Output options
     ["--no-clobber", "-o", "old", "U"],
     ["--no-clobber", "-o", "new", "U"],

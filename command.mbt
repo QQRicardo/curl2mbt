@@ -100,6 +100,7 @@ priv struct Settings {
   mut fail : Bool
   mut max_time_ms : Int32?
   mut connect_timeout_ms : Int32?
+  mut request_target : (String, Location)?
   mut retry_count : (Int32, Location)?
   mut retry_delay_ms : Int32?
   mut retry_max_time_ms : Int32?
@@ -414,6 +415,7 @@ fn Settings::new(report : Report, windows~ : Bool) -> Settings {
     fail: false,
     max_time_ms: None,
     connect_timeout_ms: None,
+    request_target: None,
     retry_count: None,
     retry_delay_ms: None,
     retry_max_time_ms: None,
@@ -620,6 +622,7 @@ fn Settings::apply(self : Settings, option : Occurrence) -> Unit {
     "write-out" => self.apply_write_out(option)
     "max-time" => self.apply_max_time(option)
     "connect-timeout" => self.apply_connect_timeout(option)
+    "request-target" => self.apply_request_target(option)
     "retry" | "retry-delay" | "retry-max-time" => self.apply_retry(option)
     "retry-all-errors" => {
       self.retry_all_errors = option.on
@@ -959,6 +962,29 @@ fn Settings::apply_connect_timeout(
         option, "unsupported-value", "the time must be a number of seconds with at most three decimals, up to 999999",
       )
   }
+}
+
+///|
+/// `--request-target`, which curl sends instead of the path and query of
+/// the URL.
+fn Settings::apply_request_target(self : Settings, option : Occurrence) -> Unit {
+  guard self.text(option) is Some(text) else { return }
+  if is_request_target(text) {
+    self.request_target = Some((text, option.value_location))
+  } else {
+    self.fail_at(
+      option,
+      "unsupported-value",
+      "a request target must be visible ASCII characters without blanks, which curl would send as they are",
+      help="percent-encode the other characters",
+    )
+  }
+}
+
+///|
+/// Whether curl sends `text` as a request target that HTTP allows.
+fn is_request_target(text : String) -> Bool {
+  !text.is_empty() && text.iter().all(char => char is ('!'..<='~'))
 }
 
 ///|

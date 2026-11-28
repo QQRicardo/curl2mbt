@@ -141,6 +141,7 @@ pub struct RequestPlan {
   write_out : String?
   max_time_ms : Int32?
   connect_timeout_ms : Int32?
+  request_target : String?
   retry : Retry?
   proxy : Proxy?
 }

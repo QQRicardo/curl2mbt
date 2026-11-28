@@ -250,6 +250,14 @@ fn Settings::build(self : Settings) -> RequestPlan? {
   }
   let auth = self.build_auth(parsed)
   let url = self.complete_url(parsed.url)
+  if self.request_target is Some((target, location)) && target != url.target() {
+    self.report.add(
+      Note,
+      "replaced-target",
+      "the request line has \{target} instead of \{url.target()} from the URL, as in curl",
+      location~,
+    )
+  }
   let output_file = self.output_file(url)
   let proxy = self.build_proxy(url)
   self.check_output_options(output_file)
@@ -283,6 +291,7 @@ fn Settings::build(self : Settings) -> RequestPlan? {
     max_filesize: self.max_filesize,
     max_time_ms: self.max_time_ms,
     connect_timeout_ms: self.connect_timeout_ms,
+    request_target: self.request_target.map(target => target.0),
     retry: self.build_retry(),
     write_out: self.write_out,
     proxy,

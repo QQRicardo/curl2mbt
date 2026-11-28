@@ -150,6 +150,7 @@ def expected(plan):
     as its parts."""
     rest = plan["url"].split("://", 1)[1]
     authority, slash, target = rest.partition("/")
+    target = plan.get("request_target", "/" + target)
     fields = []
     auth = plan.get("auth", {})
     if "basic" in auth:
@@ -178,7 +179,7 @@ def expected(plan):
             if "type" in part:
                 head += "\r\nContent-Type: " + part["type"]
             body.append(head.encode() + b"\r\n\r\n" + value_bytes(part["content"]))
-    line = ("%s /%s" % (plan["method"], target)).encode()
+    line = ("%s %s" % (plan["method"], target)).encode()
     return line, sorted(fields), body
 
 

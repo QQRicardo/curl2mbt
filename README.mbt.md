@@ -188,7 +188,7 @@ dependency and works on every backend; the programs run on native and wasm.
 | Windows cmd | the prompt, not batch files: carets, quotes, continued lines, and `"%NAME%"` as a reference to an environment variable |
 | Config files | what `-K` reads: an option on each line, with or without dashes, its value after blanks, `=` or `:`, in quotes with `\t`, `\n`, `\r` and `\v`, or without; comments; CR LF; values are literal |
 | Method | `-X`, `-I`, `-G` |
-| URL | http and https; `--url`, `--url-query`, `-g`, `--path-as-is`, user information |
+| URL | http and https; `--url`, `--url-query`, `-g`, `--path-as-is`, user information; `--request-target` with visible ASCII characters, which the request line has instead of the path and query, also after redirects, as in curl |
 | Header fields | `-H` with all its forms, `-A`, `-e`, `-b` with cookies, `-r` |
 | Body | `-d`, `--data-ascii`, `--data-binary`, `--data-raw`, `--data-urlencode`, `--json`, any number of them, also from files with `@` |
 | Uploads | `-T` with a file, which becomes the last part of a URL that ends with `/`; with `--path-as-is`, `-T` and `--url-query` are rejected, because curl then normalizes the path anyway |

@@ -730,7 +730,7 @@ fn Emitter::request_statements(
     push_map(
       out,
       "  ",
-      "client.request(\{verb}, \{quoted(plan.url.target())}, extra_headers=",
+      "client.request(\{verb}, \{quoted(plan.request_target.unwrap_or(plan.url.target()))}, extra_headers=",
       entries,
     )
     out.push("  })")
@@ -800,6 +800,11 @@ fn Emitter::request_statements(
     out.push("    }")
   }
   let changes = has_body && !plan.explicit_method && verb != "Get"
+  // curl sends --request-target after every redirect.
+  let target = match plan.request_target {
+    Some(target) => quoted(target)
+    None => "path"
+  }
   let method_expression = if changes {
     "if with_body { \{verb} } else { Get }"
   } else {
@@ -807,9 +812,9 @@ fn Emitter::request_statements(
   }
   if changes {
     out.push("    let meth : @http.RequestMethod = \{method_expression}")
-    out.push("    client.request(meth, path, extra_headers=headers)")
+    out.push("    client.request(meth, \{target}, extra_headers=headers)")
   } else {
-    out.push("    client.request(\{verb}, path, extra_headers=headers)")
+    out.push("    client.request(\{verb}, \{target}, extra_headers=headers)")
   }
   if has_body {
     out.push("    if with_body {")
