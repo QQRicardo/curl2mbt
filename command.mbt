@@ -99,6 +99,7 @@ priv struct Settings {
   mut proxy_tunnel : Bool
   mut fail : Bool
   mut max_time_ms : Int32?
+  mut connect_timeout_ms : Int32?
   mut retry_count : (Int32, Location)?
   mut retry_delay_ms : Int32?
   mut retry_max_time_ms : Int32?
@@ -412,6 +413,7 @@ fn Settings::new(report : Report, windows~ : Bool) -> Settings {
     proxy_tunnel: false,
     fail: false,
     max_time_ms: None,
+    connect_timeout_ms: None,
     retry_count: None,
     retry_delay_ms: None,
     retry_max_time_ms: None,
@@ -617,6 +619,7 @@ fn Settings::apply(self : Settings, option : Occurrence) -> Unit {
     "max-filesize" => self.apply_max_filesize(option)
     "write-out" => self.apply_write_out(option)
     "max-time" => self.apply_max_time(option)
+    "connect-timeout" => self.apply_connect_timeout(option)
     "retry" | "retry-delay" | "retry-max-time" => self.apply_retry(option)
     "retry-all-errors" => {
       self.retry_all_errors = option.on
@@ -933,6 +936,24 @@ fn Settings::apply_max_time(self : Settings, option : Occurrence) -> Unit {
   match parse_milliseconds(text) {
     Some(0) => self.max_time_ms = None
     Some(ms) => self.max_time_ms = Some(ms)
+    None =>
+      self.fail_at(
+        option, "unsupported-value", "the time must be a number of seconds with at most three decimals, up to 999999",
+      )
+  }
+}
+
+///|
+/// `--connect-timeout`, where 0 is the limit of curl, 300 seconds, which
+/// programs do not have.
+fn Settings::apply_connect_timeout(
+  self : Settings,
+  option : Occurrence,
+) -> Unit {
+  guard self.text(option) is Some(text) else { return }
+  match parse_milliseconds(text) {
+    Some(0) => self.connect_timeout_ms = None
+    Some(ms) => self.connect_timeout_ms = Some(ms)
     None =>
       self.fail_at(
         option, "unsupported-value", "the time must be a number of seconds with at most three decimals, up to 999999",

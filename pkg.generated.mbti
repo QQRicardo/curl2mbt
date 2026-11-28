@@ -140,6 +140,7 @@ pub struct RequestPlan {
   max_filesize : Int64?
   write_out : String?
   max_time_ms : Int32?
+  connect_timeout_ms : Int32?
   retry : Retry?
   proxy : Proxy?
 }

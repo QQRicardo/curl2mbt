@@ -149,6 +149,9 @@ pub fn RequestPlan::to_json(self : RequestPlan) -> Json {
   if self.max_time_ms is Some(ms) {
     out["max_time_ms"] = Json::number(ms.to_double())
   }
+  if self.connect_timeout_ms is Some(ms) {
+    out["connect_timeout_ms"] = Json::number(ms.to_double())
+  }
   Json::object(out)
 }
 
@@ -357,7 +360,7 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
     "auth", "body", "compressed", "follow_redirects", "location_trusted", "keep_post",
     "max_redirects", "cookie_engine", "insecure", "fail_on_error", "fail_with_body",
     "output_file", "create_dirs", "max_time_ms", "retry", "write_out", "proxy", "no_clobber",
-    "remove_on_error", "max_filesize",
+    "remove_on_error", "max_filesize", "connect_timeout_ms",
   ])
   if plan.integer("version", min=1) != Some(plan_version) {
     bad_plan("version", "must be \{plan_version}")
@@ -601,6 +604,7 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
     remove_on_error,
     max_filesize,
     max_time_ms: plan.integer("max_time_ms", min=1),
+    connect_timeout_ms: plan.integer("connect_timeout_ms", min=1),
     retry,
     write_out,
     proxy,

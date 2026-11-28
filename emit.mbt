@@ -669,6 +669,39 @@ fn push_map(
 }
 
 ///|
+/// The statements that make `client`, through `proxy` if there is one,
+/// within the time that `--connect-timeout` gives.
+fn Emitter::connect_statements(
+  self : Emitter,
+  indent : String,
+  origin : String,
+  trust : String,
+  proxy : String?,
+) -> Array[String] {
+  let through = if proxy is Some(_) { ", proxy~" } else { "" }
+  let client = "@http.Client(\{origin}\{trust}\{through})"
+  match (self.plan.connect_timeout_ms, proxy) {
+    (None, None) => ["\{indent}let client = \{client}"]
+    (None, Some(proxy)) =>
+      ["\{indent}let proxy = \{proxy}", "\{indent}let client = \{client}"]
+    // curl counts the CONNECT of a proxy and the TLS handshake in.
+    (Some(ms), None) => {
+      self.import_package("moonbitlang/async")
+      ["\{indent}let client = @async.with_timeout(\{ms}, () => \{client})"]
+    }
+    (Some(ms), Some(proxy)) => {
+      self.import_package("moonbitlang/async")
+      [
+        "\{indent}let client = @async.with_timeout(\{ms}, () => {",
+        "\{indent}  let proxy = \{proxy}",
+        "\{indent}  \{client}",
+        "\{indent}})",
+      ]
+    }
+  }
+}
+
+///|
 /// The statements that make the request and define `response` and `data`.
 fn Emitter::request_statements(
   self : Emitter,
@@ -688,13 +721,7 @@ fn Emitter::request_statements(
   let origin = "\{plan.url.scheme}://\{plan.url.authority()}"
   let quoted = text => "\"\{escape_text(text)}\""
   if !plan.follow_redirects {
-    let through = if proxy is Some(proxy) {
-      out.push("  let proxy = \{proxy}")
-      ", proxy~"
-    } else {
-      ""
-    }
-    out.push("  let client = @http.Client(\{quoted(origin)}\{trust}\{through})")
+    out.append(self.connect_statements("  ", quoted(origin), trust, proxy))
     out.push("  defer client.close()")
     let entries = headers.map(entry => (quoted(entry.0.name), entry.1))
     if has_body {
@@ -724,13 +751,7 @@ fn Emitter::request_statements(
     out.push("  \{keyword} with_body = true")
   }
   out.push("  for redirects = 0; ; redirects = redirects + 1 {")
-  let through = if proxy is Some(proxy) {
-    out.push("    let proxy = \{proxy}")
-    ", proxy~"
-  } else {
-    ""
-  }
-  out.push("    let client = @http.Client(origin\{trust}\{through})")
+  out.append(self.connect_statements("    ", "origin", trust, proxy))
   out.push("    defer client.close()")
   // --location-trusted sends them to every host.
   fn is_credential(header : Header) -> Bool {
@@ -1192,7 +1213,7 @@ fn Emitter::retry_code(
   ])
   let errors = if retry.all_errors {
     Some("_")
-  } else if plan.max_time_ms is Some(_) {
+  } else if plan.max_time_ms is Some(_) || plan.connect_timeout_ms is Some(_) {
     Some("@async.TimeoutError")
   } else {
     None

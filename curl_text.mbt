@@ -264,6 +264,9 @@ fn RequestPlan::curl_arguments(
   if self.max_time_ms is Some(ms) {
     option("-m", Argument::text(seconds_text(ms)))
   }
+  if self.connect_timeout_ms is Some(ms) {
+    option("--connect-timeout", Argument::text(seconds_text(ms)))
+  }
   if self.retry is Some(retry) {
     option("--retry", Argument::text(retry.count.to_string()))
     if retry.delay_ms is Some(ms) {

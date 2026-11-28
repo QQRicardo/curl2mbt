@@ -194,7 +194,7 @@ dependency and works on every backend; the programs run on native and wasm.
 | Uploads | `-T` with a file, which becomes the last part of a URL that ends with `/`; with `--path-as-is`, `-T` and `--url-query` are rejected, because curl then normalizes the path anyway |
 | Forms | `-F` with text, files (`@`, `<`), `;type=` and `;filename=`; `--form-string` |
 | Authentication | Basic (`-u`), bearer tokens (`--oauth2-bearer`) |
-| How it is sent | `-L`, `--location-trusted`, `--post301`, `--post302`, `--post303`, `--max-redirs`, `-k`, `-f`, `--fail-with-body`, `-m`, `--compressed` |
+| How it is sent | `-L`, `--location-trusted`, `--post301`, `--post302`, `--post303`, `--max-redirs`, `-k`, `-f`, `--fail-with-body`, `-m`, `--connect-timeout`, `--compressed` |
 | Proxies | `-x` with an http or https proxy, through a tunnel that `CONNECT` makes: for https URLs, and with `-p` for all; `-U`, or the user and password in the proxy URL, which win over `-U` as in curl; `--proxy-basic` |
 | Retries | `--retry`, `--retry-delay`, `--retry-max-time`, `--retry-all-errors`; `--retry-connrefused` only together with `--retry-all-errors` |
 | Where the response goes | `-o`, `-O`, `--remote-name-all`, `--output-dir`, `--create-dirs`, `--no-clobber`, `--remove-on-error`, `--max-filesize`; the first of `-o` and `-O` counts, and a later one is reported; `--no-clobber` and `--remove-on-error` not together with `--retry` |
@@ -265,6 +265,11 @@ second, twice as long each time, or what `--retry-delay` says, or longer if
 `Retry-After` asks for it in seconds; a date there ends the program with an
 error. Like curl, it writes the body of each attempt to the standard output, and
 only the last one stays in a file. `-m` limits each attempt.
+`--connect-timeout` limits the making of each connection, also after a
+redirect: the TCP connection, the `CONNECT` of a proxy and the TLS handshake,
+as curl counts them. A timeout is sent again by `--retry`, as in curl. Without
+the option curl gives up after 300 seconds, and programs wait as long as the
+system does.
 Files that the command names are read when the program runs, relative to where
 it runs, and held in memory. The boundary of a form is one that occurs in none of
 its parts.

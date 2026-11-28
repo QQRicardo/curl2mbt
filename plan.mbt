@@ -92,6 +92,9 @@ pub struct RequestPlan {
   write_out : String?
   /// `-m`: the time each attempt may take.
   max_time_ms : Int32?
+  /// `--connect-timeout`: the time that making each connection may take,
+  /// with the `CONNECT` of a proxy and the TLS handshake.
+  connect_timeout_ms : Int32?
   /// `--retry` and the options that go with it.
   retry : Retry?
   /// `-x`: the proxy that the request goes through, in a tunnel that

@@ -207,6 +207,15 @@ CASES = [
     (["-x", "P", "-L", "-k", "S/"], ["proxy-without-tunnel"]),
     (["-x", "socks5://HOSTP", "-p", "U"], ["unsupported-proxy"]),
     (["-x", "http://[::1]:1", "-p", "U"], ["unsupported-proxy"]),
+    # Connect timeouts: Z takes connections and never answers.
+    ["--connect-timeout", "2", "U/a"],
+    ["--connect-timeout", "0.5", "-k", "Z/"],
+    ["--connect-timeout", "0.5", "-p", "-x", "http://HOSTZ", "U/a"],
+    ["--connect-timeout", "2", "-p", "-x", "P", "U/a"],
+    ["-L", "--connect-timeout", "2", "U/r/302?to=V/t"],
+    ["--retry", "1", "--retry-delay", "0.2", "--connect-timeout", "0.3", "-k", "Z/"],
+    ["--connect-timeout", "0", "U/a"],
+    (["--connect-timeout", "1e3", "U"], ["unsupported-value"]),
     # Output options
     ["--no-clobber", "-o", "old", "U"],
     ["--no-clobber", "-o", "new", "U"],
@@ -347,6 +356,22 @@ class Proxy:
             pass
         finally:
             connection.close()
+
+
+class Silent:
+    """Takes connections and keeps them open without a word."""
+
+    def __init__(self):
+        self.socket = socket.socket()
+        self.socket.bind(("127.0.0.1", 0))
+        self.socket.listen(16)
+        self.authority = "127.0.0.1:%d" % self.socket.getsockname()[1]
+        self.connections = []
+        threading.Thread(target=self.serve, daemon=True).start()
+
+    def serve(self):
+        while True:
+            self.connections.append(self.socket.accept()[0])
 
 
 class Server:
@@ -508,7 +533,7 @@ def cli(arguments):
 
 def main():
     directory = tempfile.mkdtemp()
-    servers = {"U": Server(), "V": Server(), "P": Proxy()}
+    servers = {"U": Server(), "V": Server(), "P": Proxy(), "Z": Silent()}
     if shutil.which("openssl"):
         subprocess.run(
             ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2",
@@ -522,8 +547,9 @@ def main():
     def fill(text):
         text = text.replace("HOSTV", servers["V"].authority)
         text = text.replace("HOSTP", servers["P"].authority)
+        text = text.replace("HOSTZ", servers["Z"].authority)
         for name, server in servers.items():
-            scheme = "https" if name == "S" else "http"
+            scheme = "https" if name in ("S", "Z") else "http"
             for before in ("", "=", " "):
                 for after in ("/", "?", "%", ""):
                     old = before + name + after

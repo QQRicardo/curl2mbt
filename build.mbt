@@ -282,6 +282,7 @@ fn Settings::build(self : Settings) -> RequestPlan? {
     remove_on_error: self.remove_on_error is Some(_) && output_file is Some(_),
     max_filesize: self.max_filesize,
     max_time_ms: self.max_time_ms,
+    connect_timeout_ms: self.connect_timeout_ms,
     retry: self.build_retry(),
     write_out: self.write_out,
     proxy,
