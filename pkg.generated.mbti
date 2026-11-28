@@ -7,11 +7,15 @@ import {
 }
 
 // Values
+pub fn http_date(Int64) -> String
+
 pub fn parse(StringView, shell? : Shell) -> Parsed raise CurlError
 
 pub fn parse_argv(ArrayView[String]) -> Parsed raise CurlError
 
 pub fn parse_config(StringView) -> Parsed raise CurlError
+
+pub fn parse_curl_date(StringView) -> Int64?
 
 // Errors
 #derive(@debug.Debug)
@@ -144,6 +148,7 @@ pub struct RequestPlan {
   request_target : String?
   etag_compare : String?
   etag_save : String?
+  time_condition : TimeCondition?
   retry : Retry?
   proxy : Proxy?
 }
@@ -182,6 +187,19 @@ pub(all) enum Shell {
 #derive(Eq, @debug.Debug)
 pub(all) enum Target {
   Async
+}
+
+#derive(Eq, @debug.Debug)
+pub struct TimeCondition {
+  field : String
+  time : TimeSource
+}
+pub fn TimeCondition::unmodified(Self) -> Bool
+
+#derive(Eq, @debug.Debug)
+pub enum TimeSource {
+  At(Int64)
+  FileTime(String)
 }
 
 #derive(Eq, @debug.Debug)

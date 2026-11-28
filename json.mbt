@@ -149,6 +149,14 @@ pub fn RequestPlan::to_json(self : RequestPlan) -> Json {
   if self.max_time_ms is Some(ms) {
     out["max_time_ms"] = Json::number(ms.to_double())
   }
+  if self.time_condition is Some(condition) {
+    let fields = { "field": Json::string(condition.field) }
+    match condition.time {
+      At(time) => fields["time"] = Json::number(time.to_double())
+      FileTime(path) => fields["file"] = Json::string(path)
+    }
+    out["time_condition"] = Json::object(fields)
+  }
   if self.etag_compare is Some(path) {
     out["etag_compare"] = Json::string(path)
   }
@@ -370,7 +378,7 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
     "max_redirects", "cookie_engine", "insecure", "fail_on_error", "fail_with_body",
     "output_file", "create_dirs", "max_time_ms", "retry", "write_out", "proxy", "no_clobber",
     "remove_on_error", "max_filesize", "connect_timeout_ms", "request_target", "etag_compare",
-    "etag_save",
+    "etag_save", "time_condition",
   ])
   if plan.integer("version", min=1) != Some(plan_version) {
     bad_plan("version", "must be \{plan_version}")
@@ -467,6 +475,38 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
     }
   }
   let etag_compare = etag_file("etag_compare")
+  let time_condition = match plan.fields.get("time_condition") {
+    None => None
+    Some(json) => {
+      let condition = Fields::new("time_condition", json, [
+        "field", "time", "file",
+      ])
+      let fields = condition.fields
+      let field = condition.string("field")
+      if !["If-Modified-Since", "If-Unmodified-Since", "Last-Modified"].contains(
+          field,
+        ) {
+        bad_plan(
+          "time_condition.field", "must be If-Modified-Since, If-Unmodified-Since or Last-Modified",
+        )
+      }
+      let time = match (fields.get("time"), fields.get("file")) {
+        (Some(Number(n, ..)), None) if n >= 0.0 &&
+          n <= latest_time.to_double() &&
+          n == n.floor() => At(n.to_int64())
+        (None, Some(String(path))) if path != "" &&
+          !path.contains("\u0000") &&
+          parse_curl_date(path) is None &&
+          !(path.has_prefix("-") || path.has_prefix("=") || path.has_prefix("+")) =>
+          FileTime(path)
+        _ =>
+          bad_plan(
+            "time_condition", "needs a time from 0 to the end of 9999 or the name of a file that is not a date",
+          )
+      }
+      Some({ field, time, })
+    }
+  }
   let etag_save = etag_file("etag_save")
   let create_dirs = plan.flag("create_dirs")
   let no_clobber = plan.flag("no_clobber")
@@ -642,6 +682,7 @@ pub fn RequestPlan::from_json(json : Json) -> RequestPlan raise PlanError {
     request_target,
     etag_compare,
     etag_save,
+    time_condition,
     retry,
     write_out,
     proxy,

@@ -241,6 +241,32 @@ CASES = [
     ["--retry", "1", "--retry-delay", "0.2", "--etag-save", "new", "U/flaky/503/1?etag=%22f%22"],
     (["--etag-save", "-", "U"], ["unsupported-value"]),
     (["--etag-compare", "tag", "-H", "If-None-Match: x", "U"], ["duplicate-header"]),
+    # Time conditions: lm= in the query makes the server send Last-Modified.
+    ["-z", "1 Jan 2000", "-w", "[%{http_code}][%{size_download}]", "U/a?lm=Sun,%2006%20Nov%201994%2008:49:37%20GMT"],
+    ["-z", "1 Jan 1990", "-w", "[%{http_code}][%{size_download}]", "U/a?lm=Sun,%2006%20Nov%201994%2008:49:37%20GMT"],
+    ["-z", "Sun, 06 Nov 1994 08:49:37 GMT", "-w", "[%{http_code}]", "U/a?lm=Sun,%2006%20Nov%201994%2008:49:37%20GMT"],
+    ["-z", "-1 Jan 1990", "-w", "[%{http_code}]", "U/a?lm=Sun,%2006%20Nov%201994%2008:49:37%20GMT"],
+    ["-z", "-1 Jan 2000", "-w", "[%{http_code}]", "U/a?lm=Sun,%2006%20Nov%201994%2008:49:37%20GMT"],
+    ["-z", "=1 Jan 2000", "-w", "[%{http_code}]", "U/a?lm=Sun,%2006%20Nov%201994%2008:49:37%20GMT"],
+    ["-z", "1 Jan 2000", "-o", "out", "U/a?lm=Sun,%2006%20Nov%201994%2008:49:37%20GMT"],
+    ["-z", "1 Jan 2000", "-o", "old", "U/a?lm=Sun,%2006%20Nov%201994%2008:49:37%20GMT"],
+    ["-z", "1 Jan 1990", "-o", "old", "U/a?lm=Sun,%2006%20Nov%201994%2008:49:37%20GMT"],
+    ["-f", "-z", "1 Jan 2000", "-w", "[%{http_code}]", "U/status/404?lm=Sun,%2006%20Nov%201994%2008:49:37%20GMT"],
+    ["--fail-with-body", "-z", "1 Jan 2000", "-w", "[%{http_code}]", "U/status/404?lm=Sun,%2006%20Nov%201994%2008:49:37%20GMT"],
+    ["-z", "1 Jan 2000", "-w", "[%{http_code}]", "U/r/302?to=/t&lm=Sun,%2006%20Nov%201994%2008:49:37%20GMT"],
+    ["-L", "-z", "1 Jan 2000", "-w", "[%{http_code}]", "U/r/302?to=/t&lm=Sun,%2006%20Nov%201994%2008:49:37%20GMT"],
+    ["-L", "-z", "1 Jan 2000", "-w", "[%{http_code}]", "U/r/302?to=/t%3Flm=Sun,%252006%2520Nov%25201994%252008:49:37%2520GMT"],
+    ["-z", "1 Jan 2000", "-w", "[%{http_code}]", "U/a?lm=Sunday,%2006-Nov-94%2008:49:37%20GMT"],
+    ["-z", "1 Jan 2000", "-w", "[%{http_code}]", "U/a?lm=Sun%20Nov%20%206%2008:49:37%201994"],
+    ["-z", "1 Jan 2000", "-w", "[%{http_code}]", "U/a?lm=whenever"],
+    ["-z", "6 Nov 1994 08:49:37 PST", "U/a"],
+    ["-z", "19941106", "U/a"],
+    ["-z", "f", "U/a"],
+    ["-z", "-f", "-w", "[%{http_code}]", "U/a?lm=Sun,%2006%20Nov%202095%2008:49:37%20GMT"],
+    ["-z", "missing", "U/a"],
+    ["-z", "1994-11-06", "U/a"],
+    (["-z", "1 Jan 1969", "U"], ["unsupported-value"]),
+    (["-z", "1 Jan 2000", "-r", "0-1", "U"], ["conflicting-options"]),
     # Request targets
     ["-X", "OPTIONS", "--request-target", "*", "U"],
     ["--request-target", "/x?y=1", "-w", "[%{url_effective}]", "U/a?b"],
@@ -485,6 +511,8 @@ def answer(data):
     for pair in parts.query.split("&"):
         if pair.startswith("etag="):
             fields.append("ETag: " + urllib.parse.unquote(pair[5:]))
+        if pair.startswith("lm="):
+            fields.append("Last-Modified: " + urllib.parse.unquote(pair[3:]))
     if method == b"HEAD" or status in (204, 304):
         length, body = len(body), b""
         fields.append("Content-Length: %d" % (0 if status == 204 else length))

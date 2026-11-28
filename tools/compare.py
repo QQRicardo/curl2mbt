@@ -28,6 +28,7 @@ blanks around header values.
 """
 
 import base64
+import email.utils
 import json
 import os
 import random
@@ -151,6 +152,7 @@ def expected(plan):
     rest = plan["url"].split("://", 1)[1]
     authority, slash, target = rest.partition("/")
     target = plan.get("request_target", "/" + target)
+    condition = plan.get("time_condition", {})
     fields = []
     auth = plan.get("auth", {})
     if "basic" in auth:
@@ -158,6 +160,9 @@ def expected(plan):
         fields.append((b"authorization", b"Basic " + token))
     if "bearer" in auth:
         fields.append((b"authorization", b"Bearer " + value_bytes(auth["bearer"])))
+    if "time" in condition:
+        date = email.utils.formatdate(condition["time"], usegmt=True)
+        fields.append((condition["field"].lower().encode(), date.encode()))
     for header in plan["headers"]:
         fields.append((header["name"].lower().encode(), value_bytes(header["value"])))
     body = None

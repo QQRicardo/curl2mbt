@@ -199,6 +199,7 @@ dependency and works on every backend; the programs run on native and wasm.
 | Retries | `--retry`, `--retry-delay`, `--retry-max-time`, `--retry-all-errors`; `--retry-connrefused` only together with `--retry-all-errors` |
 | Where the response goes | `-o`, `-O`, `--remote-name-all`, `--output-dir`, `--create-dirs`, `--no-clobber`, `--remove-on-error`, `--max-filesize`; the first of `-o` and `-O` counts, and a later one is reported; `--no-clobber` and `--remove-on-error` not together with `--retry` |
 | ETags | `--etag-compare` and `--etag-save` with the name of a file |
+| Time conditions | `-z` with a date, read with the rules of curl, or the name of a file, after `-`, `=` or `+` |
 | What is written after the body | `-w` with `%{http_code}`, `%{response_code}`, `%{content_type}`, `%{size_download}`, `%{num_redirects}`, `%{url_effective}`, `%{method}`, `%{stderr}` and `%{stdout}`, `%%` and the escapes of curl |
 | Variables | `--variable` with `name=value` or `%NAME`, which stays a reference to the environment variable; `--expand-` before any option that takes a value, with `{{name}}` and the functions `trim`, `json`, `url`, `b64` and `64dec` |
 | Reported as without effect on the request | options about headers in the output, progress and connection reuse |
@@ -281,6 +282,16 @@ response with a status from 200 to 399, also of a redirect, it writes the ETag
 there, without the blanks around it, and a line break. Where a response has
 several ETag fields, curl writes the last one, and programs all of them, joined
 with commas, as moonbitlang/async gives them.
+With `-z` the program sends If-Modified-Since, If-Unmodified-Since for `-z -`
+or Last-Modified for `-z =`, with the date of the command or the time the file
+was last modified when the program runs; without such a file there is no
+condition, as in curl, which takes what it cannot read as a date for a file.
+Like curl, a program answers 304 itself, with no body and no file from `-o`,
+when Last-Modified of the last response shows that the condition is not met,
+unless `-f` fails first. It reads Last-Modified with the rules of curl and
+the time zones GMT, UT, UTC and Z or a numeric offset; curl knows more names.
+`-z` with a date before 1970, together with `-r`, and together with a header
+line for the same field are rejected.
 Files that the command names are read when the program runs, relative to where
 it runs, and held in memory. The boundary of a form is one that occurs in none of
 its parts.

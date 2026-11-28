@@ -237,6 +237,11 @@ ARGV_CASES = [("same", case) for case in [
     ["--max-filesize", "0", "--clobber", U],
     ["--connect-timeout", "2.5", "-m", "3", U],
     ["--connect-timeout", "0", U],
+    # Time conditions
+    ["-z", "1 Jan 2000", U],
+    ["-z", "-Sun, 06 Nov 1994 08:49:37 GMT", U],
+    ["-z", "=19941106", "-L", U],
+    ["-z", "6 Nov 1994 08:49:37 +0100", U],
     # Request targets
     ["-X", "OPTIONS", "--request-target", "*", U],
     ["--request-target", "/x?y=1&z", U + "/a?b"],

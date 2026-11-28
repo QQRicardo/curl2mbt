@@ -106,6 +106,9 @@ pub struct RequestPlan {
   /// `--etag-save`: the file that is made before the request and gets the
   /// ETag of each response with a status from 200 to 399.
   etag_save : String?
+  /// `-z`: the field with the time, and whether the program answers 304
+  /// itself after a response whose Last-Modified does not meet it.
+  time_condition : TimeCondition?
   /// `--retry` and the options that go with it.
   retry : Retry?
   /// `-x`: the proxy that the request goes through, in a tunnel that

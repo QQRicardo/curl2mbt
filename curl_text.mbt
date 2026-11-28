@@ -264,6 +264,18 @@ fn RequestPlan::curl_arguments(
   if self.max_time_ms is Some(ms) {
     option("-m", Argument::text(seconds_text(ms)))
   }
+  if self.time_condition is Some(condition) {
+    let prefix = match condition.field {
+      "If-Unmodified-Since" => "-"
+      "Last-Modified" => "="
+      _ => ""
+    }
+    let text = match condition.time {
+      At(time) => http_date(time)
+      FileTime(path) => path
+    }
+    option("-z", Argument::text(prefix + text))
+  }
   if self.etag_compare is Some(path) {
     option("--etag-compare", Argument::text(path))
   }

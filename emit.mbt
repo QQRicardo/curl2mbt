@@ -728,10 +728,11 @@ fn Emitter::request_statements(
       entries.push(("\"Content-Length\"", "body.length().to_string()"))
     }
     let target = quoted(plan.request_target.unwrap_or(plan.url.target()))
-    if plan.etag_compare is Some(_) {
+    let optional = self.etag_header("  ") + self.file_time_header("  ")
+    if !optional.is_empty() {
       push_map(out, "  ", "let headers : @http.Headers = ", entries)
       out.push("  }")
-      out.append(self.etag_header("  "))
+      out.append(optional)
       out.push("  client.request(\{verb}, \{target}, extra_headers=headers)")
     } else {
       push_map(
@@ -790,6 +791,7 @@ fn Emitter::request_statements(
   )
   out.push("    }")
   out.append(self.etag_header("    "))
+  out.append(self.file_time_header("    "))
   let credentials = headers.filter(entry => is_credential(entry.0))
   if !credentials.is_empty() {
     out.push("    // Credentials are for the first host only.")
@@ -938,6 +940,16 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
       (header, self.string_expression(header.value).unwrap_or("\"\"")),
     )
   }
+  // curl sends the field of -z with every request, also after redirects.
+  if plan.time_condition is Some({ field, time: At(time), }) {
+    let date = http_date(time)
+    let header = Header::{
+      name: field,
+      value: Value::literal(date),
+      implied: true,
+    }
+    fields.push((header, "\"\{date}\""))
+  }
   let body_lines : Array[String] = []
   match plan.body {
     Some(Data(value)) => self.body_statements(value, body_lines)
@@ -1019,11 +1031,25 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
       "  let if_none_match = etag_to_compare(\"\{escape_text(path)}\")",
     )
   }
+  if plan.time_condition is Some({ time: FileTime(path), .. }) {
+    lines.push("  let condition_time = file_time(\"\{escape_text(path)}\")")
+  }
   lines.append(body_lines)
   lines.append(request_lines)
   lines.push("}")
   if plan.etag_compare is Some(_) || plan.etag_save is Some(_) {
     self.import_package("moonbitlang/async/fs")
+  }
+  if plan.time_condition is Some(condition) {
+    for code in [time_cond_code, condition_unmet_code] {
+      lines.append(code.split("\n").map(line => line.to_owned()).collect())
+    }
+    if condition.time is FileTime(_) {
+      self.import_package("moonbitlang/async/fs")
+      lines.append(
+        file_time_code.split("\n").map(line => line.to_owned()).collect(),
+      )
+    }
   }
   if plan.etag_compare is Some(_) {
     lines.append(
@@ -1098,8 +1124,18 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
       "    fail(\"the response is larger than --max-filesize allows\")", "  }",
     ])
   }
-  lines.append(self.output_statements("  "))
-  lines.append(self.write_out_statements("  ", body_written=true))
+  lines.append(self.time_cond_statements())
+  let tail = []
+  match (plan.time_condition, plan.output_file) {
+    // curl writes no file then.
+    (Some(_), Some(_)) => {
+      tail.push("  if !unmet {")
+      tail.append(self.output_statements("    "))
+      tail.push("  }")
+    }
+    _ => tail.append(self.output_statements("  "))
+  }
+  tail.append(self.write_out_statements("  ", body_written=true))
   if plan.fail_with_body {
     if plan.remove_on_error && plan.output_file is Some(path) {
       let written = if plan.no_clobber {
@@ -1107,7 +1143,7 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
       } else {
         "\"\{escape_text(path)}\""
       }
-      lines.append([
+      tail.append([
         "  if response.code >= 400 {",
         "    // --remove-on-error",
         "    @fs.remove(\{written})",
@@ -1115,9 +1151,16 @@ fn Emitter::emit(self : Emitter, secrets : Secrets) -> Emitted raise EmitError {
         "  }",
       ])
     } else {
-      lines.append(check)
+      tail.append(check)
     }
   }
+  if plan.time_condition is Some(_) &&
+    tail.iter().any(line => line.contains("response")) {
+    lines.push(
+      "  let response = if unmet { { ..response, code: 304 } } else { response }",
+    )
+  }
+  lines.append(tail)
   lines.push("}")
   for name in ["moonbitlang/async/http", "moonbitlang/async/io"] {
     self.import_package(name)

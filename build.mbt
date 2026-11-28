@@ -262,6 +262,7 @@ fn Settings::build(self : Settings) -> RequestPlan? {
   let proxy = self.build_proxy(url)
   self.check_output_options(output_file)
   self.check_etag()
+  self.check_time_cond()
   Some({
     http_method,
     explicit_method: self.request is Some(_),
@@ -296,6 +297,7 @@ fn Settings::build(self : Settings) -> RequestPlan? {
     request_target: self.request_target.map(target => target.0),
     etag_compare: self.etag_compare.map(entry => entry.0),
     etag_save: self.etag_save.map(entry => entry.0),
+    time_condition: self.time_cond.map(entry => entry.0),
     retry: self.build_retry(),
     write_out: self.write_out,
     proxy,
